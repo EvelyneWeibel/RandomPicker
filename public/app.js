@@ -431,7 +431,7 @@ function addItem(number, title) {
     return;
   }
 
-    list.items.push({ number: cleanNumber, title: cleanTitle });
+  list.items.push({ number: cleanNumber, title: cleanTitle });
   state.pickedItem = null;
   queueSave();
   render();
