@@ -107,7 +107,9 @@ button:disabled {
 .selector-row,
 .action-row,
 .add-row,
-.import-row {
+.import-row,
+.scan-row,
+.scan-confirm {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -327,6 +329,35 @@ select {
   min-width: 0;
 }
 
+.scan-row {
+  margin: 12px 0 0;
+  flex-wrap: wrap;
+}
+
+.scan-row button,
+.scan-confirm button {
+  min-height: 44px;
+  padding: 0 16px;
+  background: #e9f1f3;
+  color: var(--accent-strong);
+}
+
+.scan-status {
+  min-height: 1.4em;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.scan-confirm {
+  margin: 10px 0 0;
+}
+
+.scan-confirm input:not(.number-input) {
+  flex: 1;
+  min-width: 0;
+}
+
 .number-input {
   width: 76px;
   flex: 0 0 76px;
@@ -346,6 +377,13 @@ select {
 }
 
 #fileInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+#scanImageInput {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -456,14 +494,16 @@ select {
   }
 
   .selector-row,
-  .add-row {
+  .add-row,
+  .scan-confirm {
     align-items: stretch;
     flex-direction: column;
   }
 
   select,
   .selector-row button,
-  .add-row button {
+  .add-row button,
+  .scan-confirm button {
     width: 100%;
   }
 

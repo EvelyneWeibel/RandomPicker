@@ -78,6 +78,19 @@
           <button type="submit">Add</button>
         </form>
 
+        <div class="scan-row">
+          <button id="scanButton" type="button">Scan new item</button>
+          <input id="scanImageInput" type="file" accept="image/*" capture="environment">
+          <span id="scanStatus" class="scan-status"></span>
+        </div>
+
+        <form id="scanConfirmForm" class="scan-confirm" hidden>
+          <input id="scanNumberInput" class="number-input" type="text" aria-label="Scanned item number">
+          <input id="scanTitleInput" type="text" aria-label="Scanned item title">
+          <button type="submit">Confirm</button>
+          <button id="scanCancelButton" class="ghost-danger" type="button">Cancel</button>
+        </form>
+
         <div class="import-row">
           <label class="file-button" for="fileInput">Upload list</label>
           <input id="fileInput" type="file" accept=".txt,.csv,.json">
@@ -98,6 +111,7 @@
     </template>
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <script src="config.js"></script>
     <script src="app.js"></script>
   </body>

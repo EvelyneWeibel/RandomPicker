@@ -43,6 +43,13 @@ const elements = {
   addItemForm: document.querySelector("#addItemForm"),
   newItemNumberInput: document.querySelector("#newItemNumberInput"),
   newItemTitleInput: document.querySelector("#newItemTitleInput"),
+  scanButton: document.querySelector("#scanButton"),
+  scanImageInput: document.querySelector("#scanImageInput"),
+  scanStatus: document.querySelector("#scanStatus"),
+  scanConfirmForm: document.querySelector("#scanConfirmForm"),
+  scanNumberInput: document.querySelector("#scanNumberInput"),
+  scanTitleInput: document.querySelector("#scanTitleInput"),
+  scanCancelButton: document.querySelector("#scanCancelButton"),
   fileInput: document.querySelector("#fileInput"),
   exportButton: document.querySelector("#exportButton"),
   deleteAllButton: document.querySelector("#deleteAllButton"),
@@ -180,6 +187,16 @@ function nextNumber(list) {
     number += 1;
   }
   return String(number);
+}
+
+function cleanScannedTitle(text) {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .trim();
 }
 
 function isNumberUnique(list, number, currentIndex = -1) {
@@ -384,6 +401,49 @@ function addItem(number, title) {
   render();
 }
 
+async function scanImage(file) {
+  if (!file) return;
+  if (!window.Tesseract?.recognize) {
+    showMessage("OCR could not load. Check your connection and try again.");
+    return;
+  }
+
+  const list = activeList();
+  if (!list) return;
+
+  elements.scanStatus.textContent = "Scanning image...";
+  elements.scanButton.disabled = true;
+  elements.scanConfirmForm.hidden = true;
+
+  try {
+    const result = await window.Tesseract.recognize(file, "eng", {
+      logger: (message) => {
+        if (message.status === "recognizing text") {
+          const percent = Math.round((message.progress || 0) * 100);
+          elements.scanStatus.textContent = `Scanning image... ${percent}%`;
+        }
+      }
+    });
+
+    const title = cleanScannedTitle(result.data?.text || "");
+    if (!title) {
+      elements.scanStatus.textContent = "No text found. Try a clearer photo.";
+      return;
+    }
+
+    elements.scanNumberInput.value = nextNumber(list);
+    elements.scanTitleInput.value = title;
+    elements.scanConfirmForm.hidden = false;
+    elements.scanStatus.textContent = "Review and confirm.";
+    elements.scanTitleInput.focus();
+  } catch (error) {
+    elements.scanStatus.textContent = error.message || "Scan failed.";
+  } finally {
+    elements.scanButton.disabled = false;
+    elements.scanImageInput.value = "";
+  }
+}
+
 function parseUploadedList(fileName, text) {
   if (fileName.toLowerCase().endsWith(".json")) {
     const parsed = JSON.parse(text);
@@ -562,6 +622,28 @@ elements.addItemForm.addEventListener("submit", (event) => {
   elements.newItemNumberInput.value = "";
   elements.newItemTitleInput.value = "";
   elements.newItemTitleInput.focus();
+});
+
+elements.scanButton.addEventListener("click", () => {
+  elements.scanImageInput.click();
+});
+
+elements.scanImageInput.addEventListener("change", () => {
+  scanImage(elements.scanImageInput.files[0]);
+});
+
+elements.scanConfirmForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  addItem(elements.scanNumberInput.value, elements.scanTitleInput.value);
+  elements.scanConfirmForm.hidden = true;
+  elements.scanStatus.textContent = "";
+});
+
+elements.scanCancelButton.addEventListener("click", () => {
+  elements.scanConfirmForm.hidden = true;
+  elements.scanStatus.textContent = "";
+  elements.scanNumberInput.value = "";
+  elements.scanTitleInput.value = "";
 });
 
 elements.fileInput.addEventListener("change", async () => {

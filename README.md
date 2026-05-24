@@ -55,6 +55,10 @@ Sub numbers are supported too, such as `1`, `2`, `3-1`, `3-2`, and `4`.
 
 Saved lists are stored in `data/lists.json`.
 
+## Scan new item
+
+The hosted app has a **Scan new item** button. On phones, it opens the camera/photo picker, runs OCR in the browser, auto-fills the next available number, and lets you edit both the number and title before confirming.
+
 ## Host it free with GitHub Pages and Supabase
 
 GitHub Pages hosts the files in `public/`. Supabase Auth handles sign-in, and Supabase stores each user's picker data.
