@@ -266,12 +266,15 @@ async function findBookMatches(isbns, candidates) {
 
   isbns.slice(0, 3).forEach((isbn) => {
     lookups.push(searchGoogleBooks(`isbn:${isbn}`));
+    lookups.push(searchGoogleBooks(`isbn:${isbn}`, "fr"));
     lookups.push(searchOpenLibraryByIsbn(isbn));
   });
 
   candidates.slice(0, 4).forEach((candidate) => {
+    lookups.push(searchGoogleBooks(`intitle:${candidate}`, "fr"));
     lookups.push(searchGoogleBooks(`intitle:${candidate}`));
     lookups.push(searchOpenLibraryByTitle(candidate));
+    lookups.push(searchOpenLibraryByTitle(candidate, "fr"));
   });
 
   const results = await Promise.allSettled(lookups);
@@ -279,7 +282,34 @@ async function findBookMatches(isbns, candidates) {
     .filter((result) => result.status === "fulfilled")
     .flatMap((result) => result.value);
 
-  return uniqueBooks(books).slice(0, 8);
+  return sortBooksByQuery(uniqueBooks(books), candidates, isbns).slice(0, 8);
+}
+
+function sortBooksByQuery(books, candidates, isbns) {
+  const normalizedCandidates = candidates.map(normalizeSearchText);
+  const hasIsbn = isbns.length > 0;
+  return books.sort((a, b) => {
+    return bookScore(b, normalizedCandidates, hasIsbn) - bookScore(a, normalizedCandidates, hasIsbn);
+  });
+}
+
+function bookScore(book, normalizedCandidates, hasIsbn) {
+  const title = normalizeSearchText(book.title);
+  const authorBonus = book.author ? 8 : 0;
+  const exactBonus = normalizedCandidates.some((candidate) => candidate && title === candidate) ? 50 : 0;
+  const includesBonus = normalizedCandidates.some((candidate) => candidate && title.includes(candidate)) ? 25 : 0;
+  const candidateIncludesBonus = normalizedCandidates.some((candidate) => candidate && candidate.includes(title)) ? 10 : 0;
+  const isbnBonus = hasIsbn ? 20 : 0;
+  return authorBonus + exactBonus + includesBonus + candidateIncludesBonus + isbnBonus;
+}
+
+function normalizeSearchText(text) {
+  return String(text || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/gi, " ")
+    .trim()
+    .toLowerCase();
 }
 
 function withTimeout(promise, milliseconds, message) {
@@ -291,8 +321,14 @@ function withTimeout(promise, milliseconds, message) {
   ]);
 }
 
-async function searchGoogleBooks(query) {
-  const url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=5`;
+async function searchGoogleBooks(query, language = "") {
+  const params = new URLSearchParams({
+    q: query,
+    maxResults: "5",
+    printType: "books"
+  });
+  if (language) params.set("langRestrict", language);
+  const url = `https://www.googleapis.com/books/v1/volumes?${params.toString()}`;
   const data = await fetchJson(url);
   return (data.items || []).map((item) => ({
     title: item.volumeInfo?.title || "",
@@ -301,14 +337,28 @@ async function searchGoogleBooks(query) {
 }
 
 async function searchOpenLibraryByIsbn(isbn) {
-  const url = `https://openlibrary.org/isbn/${encodeURIComponent(isbn)}.json`;
+  const url = `https://openlibrary.org/api/books?bibkeys=ISBN:${encodeURIComponent(isbn)}&format=json&jscmd=data`;
   const data = await fetchJson(url);
-  const author = Array.isArray(data.authors) && data.authors.length ? "Open Library" : "";
-  return [{ title: data.title || "", author }];
+  const book = data[`ISBN:${isbn}`];
+  if (!book) return [];
+  return [{
+    title: book.title || "",
+    author: (book.authors || []).map((author) => author.name).filter(Boolean).slice(0, 2).join(", ")
+  }];
 }
 
-async function searchOpenLibraryByTitle(title) {
-  const url = `https://openlibrary.org/search.json?title=${encodeURIComponent(title)}&limit=5&fields=title,author_name`;
+async function searchOpenLibraryByTitle(title, language = "") {
+  const params = new URLSearchParams({
+    title,
+    limit: "5",
+    fields: "title,author_name"
+  });
+  if (language === "fr") {
+    params.set("lang", "fr");
+    params.set("q", `${title} language:fre`);
+    params.delete("title");
+  }
+  const url = `https://openlibrary.org/search.json?${params.toString()}`;
   const data = await fetchJson(url);
   return (data.docs || []).map((doc) => ({
     title: doc.title || "",
