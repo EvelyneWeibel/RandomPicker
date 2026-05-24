@@ -249,7 +249,7 @@ function extractIsbns(text) {
   const seen = new Set();
   return candidates
     .map((candidate) => candidate.replace(/[^0-9Xx]/g, "").toUpperCase())
-    .filter((isbn) => isbn.length === 10 || isbn.length === 13)
+    .filter(isValidIsbn)
     .filter((isbn) => {
       if (seen.has(isbn)) return false;
       seen.add(isbn);
@@ -262,13 +262,18 @@ function formatBookTitle(book) {
 }
 
 function uniqueBooks(books) {
-  const seen = new Set();
-  return books.filter((book) => {
+  const bestByBook = new Map();
+  books.forEach((book) => {
     const key = formatBookTitle(book).toLowerCase();
-    if (!book.title || seen.has(key)) return false;
-    seen.add(key);
-    return true;
+    if (!book.title) return;
+    const existing = bestByBook.get(key);
+    const existingScore = existing?.sourceScore || 0;
+    const bookScoreValue = book.sourceScore || 0;
+    if (!existing || bookScoreValue > existingScore || (!existing.author && book.author)) {
+      bestByBook.set(key, book);
+    }
   });
+  return [...bestByBook.values()];
 }
 
 async function fetchJson(url) {
@@ -278,30 +283,39 @@ async function fetchJson(url) {
 }
 
 async function findBookMatches(isbns, candidates) {
-  const lookups = [];
+  const preferredLookups = [];
+  const fallbackLookups = [];
 
   isbnVariants(isbns).slice(0, 6).forEach((isbn) => {
-    lookups.push(searchGoogleBooks(`isbn:${isbn}`));
-    lookups.push(searchGoogleBooks(`isbn:${isbn}`, { language: "fr", country: "FR" }));
-    lookups.push(searchGoogleBooks(isbn, { country: "FR" }));
-    lookups.push(searchOpenLibraryByIsbn(isbn));
-    lookups.push(searchOpenLibraryByIsbnSearch(isbn));
+    preferredLookups.push(() => searchOpenLibraryByIsbnSearch(isbn, 140));
+    preferredLookups.push(() => searchOpenLibraryByIsbn(isbn, 135));
+    preferredLookups.push(() => searchOpenLibraryIsbnJson(isbn, 130));
+    fallbackLookups.push(() => searchGoogleBooks(`isbn:${isbn}`, { sourceScore: 110 }));
+    fallbackLookups.push(() => searchGoogleBooks(`isbn:${isbn}`, { language: "fr", country: "FR", sourceScore: 108 }));
   });
 
   candidates.slice(0, 4).forEach((candidate) => {
-    lookups.push(searchGoogleBooks(`intitle:${candidate}`, { language: "fr", country: "FR" }));
-    lookups.push(searchGoogleBooks(`intitle:${candidate}`));
-    lookups.push(searchGoogleBooks(candidate, { language: "fr", country: "FR" }));
-    lookups.push(searchOpenLibraryByTitle(candidate));
-    lookups.push(searchOpenLibraryByTitle(candidate, "fr"));
+    preferredLookups.push(() => searchOpenLibraryByTitle(candidate, "", 82));
+    preferredLookups.push(() => searchOpenLibraryByTitle(candidate, "fr", 80));
+    fallbackLookups.push(() => searchGoogleBooks(`intitle:${candidate}`, { sourceScore: 70 }));
+    fallbackLookups.push(() => searchGoogleBooks(candidate, { sourceScore: 65 }));
+    fallbackLookups.push(() => searchGoogleBooks(`intitle:${candidate}`, { language: "fr", country: "FR", sourceScore: 58 }));
+    fallbackLookups.push(() => searchGoogleBooks(candidate, { language: "fr", country: "FR", sourceScore: 55 }));
   });
 
-  const results = await Promise.allSettled(lookups);
-  const books = results
-    .filter((result) => result.status === "fulfilled")
-    .flatMap((result) => result.value);
+  let books = await collectBookLookups(preferredLookups);
+  if (!books.length) {
+    books = await collectBookLookups(fallbackLookups);
+  }
 
   return sortBooksByQuery(uniqueBooks(books), candidates, isbns).slice(0, 8);
+}
+
+async function collectBookLookups(lookups) {
+  const results = await Promise.allSettled(lookups.map((lookup) => lookup()));
+  return results
+    .filter((result) => result.status === "fulfilled")
+    .flatMap((result) => result.value);
 }
 
 function isbnVariants(isbns) {
@@ -314,6 +328,32 @@ function isbnVariants(isbns) {
     if (isbn13) variants.push(isbn13);
   });
   return uniqueValues(variants);
+}
+
+function isValidIsbn(isbn) {
+  const value = String(isbn || "").replace(/[^0-9Xx]/g, "").toUpperCase();
+  if (value.length === 13) return isValidIsbn13(value);
+  if (value.length === 10) return isValidIsbn10(value);
+  return false;
+}
+
+function isValidIsbn13(isbn) {
+  if (!/97[89]\d{10}/.test(isbn)) return false;
+  let sum = 0;
+  for (let index = 0; index < 12; index += 1) {
+    sum += Number(isbn[index]) * (index % 2 === 0 ? 1 : 3);
+  }
+  return (10 - (sum % 10)) % 10 === Number(isbn[12]);
+}
+
+function isValidIsbn10(isbn) {
+  if (!/^\d{9}[\dX]$/.test(isbn)) return false;
+  let sum = 0;
+  for (let index = 0; index < 10; index += 1) {
+    const value = isbn[index] === "X" ? 10 : Number(isbn[index]);
+    sum += value * (10 - index);
+  }
+  return sum % 11 === 0;
 }
 
 function isbn13To10(isbn) {
@@ -350,12 +390,13 @@ function sortBooksByQuery(books, candidates, isbns) {
 
 function bookScore(book, normalizedCandidates, hasIsbn) {
   const title = normalizeSearchText(book.title);
+  const sourceBonus = book.sourceScore || 0;
   const authorBonus = book.author ? 8 : 0;
   const exactBonus = normalizedCandidates.some((candidate) => candidate && title === candidate) ? 50 : 0;
   const includesBonus = normalizedCandidates.some((candidate) => candidate && title.includes(candidate)) ? 25 : 0;
   const candidateIncludesBonus = normalizedCandidates.some((candidate) => candidate && candidate.includes(title)) ? 10 : 0;
   const isbnBonus = hasIsbn ? 20 : 0;
-  return authorBonus + exactBonus + includesBonus + candidateIncludesBonus + isbnBonus;
+  return sourceBonus + authorBonus + exactBonus + includesBonus + candidateIncludesBonus + isbnBonus;
 }
 
 function normalizeSearchText(text) {
@@ -388,31 +429,51 @@ async function searchGoogleBooks(query, options = {}) {
   const data = await fetchJson(url);
   return (data.items || []).map((item) => ({
     title: item.volumeInfo?.title || "",
-    author: (item.volumeInfo?.authors || []).slice(0, 2).join(", ")
+    author: (item.volumeInfo?.authors || []).slice(0, 2).join(", "),
+    sourceScore: options.sourceScore || 0
   }));
 }
 
-async function searchOpenLibraryByIsbn(isbn) {
+async function searchOpenLibraryByIsbn(isbn, sourceScore = 0) {
   const url = `https://openlibrary.org/api/books?bibkeys=ISBN:${encodeURIComponent(isbn)}&format=json&jscmd=data`;
   const data = await fetchJson(url);
   const book = data[`ISBN:${isbn}`];
   if (!book) return [];
   return [{
     title: book.title || "",
-    author: (book.authors || []).map((author) => author.name).filter(Boolean).slice(0, 2).join(", ")
+    author: (book.authors || []).map((author) => author.name).filter(Boolean).slice(0, 2).join(", "),
+    sourceScore
   }];
 }
 
-async function searchOpenLibraryByIsbnSearch(isbn) {
+async function searchOpenLibraryByIsbnSearch(isbn, sourceScore = 0) {
   const url = `https://openlibrary.org/search.json?isbn=${encodeURIComponent(isbn)}&limit=5&fields=title,author_name`;
   const data = await fetchJson(url);
   return (data.docs || []).map((doc) => ({
     title: doc.title || "",
-    author: (doc.author_name || []).slice(0, 2).join(", ")
+    author: (doc.author_name || []).slice(0, 2).join(", "),
+    sourceScore
   }));
 }
 
-async function searchOpenLibraryByTitle(title, language = "") {
+async function searchOpenLibraryIsbnJson(isbn, sourceScore = 0) {
+  const book = await fetchJson(`https://openlibrary.org/isbn/${encodeURIComponent(isbn)}.json`);
+  const authorKeys = (book.authors || []).map((author) => author.key).filter(Boolean).slice(0, 2);
+  const authorResults = await Promise.allSettled(authorKeys.map((key) => fetchJson(`https://openlibrary.org${key}.json`)));
+  const author = authorResults
+    .filter((result) => result.status === "fulfilled")
+    .map((result) => result.value?.name)
+    .filter(Boolean)
+    .join(", ");
+
+  return [{
+    title: book.title || "",
+    author,
+    sourceScore
+  }];
+}
+
+async function searchOpenLibraryByTitle(title, language = "", sourceScore = 0) {
   const params = new URLSearchParams({
     title,
     limit: "5",
@@ -427,7 +488,8 @@ async function searchOpenLibraryByTitle(title, language = "") {
   const data = await fetchJson(url);
   return (data.docs || []).map((doc) => ({
     title: doc.title || "",
-    author: (doc.author_name || []).slice(0, 2).join(", ")
+    author: (doc.author_name || []).slice(0, 2).join(", "),
+    sourceScore
   }));
 }
 
@@ -440,9 +502,17 @@ async function detectBarcodeIsbns(file) {
     bitmap.close?.();
     return barcodes
       .map((barcode) => String(barcode.rawValue || "").replace(/\D/g, ""))
-      .filter((value) => value.length === 10 || value.length === 13);
+      .filter(isValidIsbn);
   } catch {
     return [];
+  }
+}
+
+async function recognizeBookText(file, logger) {
+  try {
+    return await window.Tesseract.recognize(file, "eng+fra", { logger });
+  } catch {
+    return window.Tesseract.recognize(file, "eng", { logger });
   }
 }
 
@@ -729,12 +799,10 @@ async function scanImage(file) {
     }
 
     elements.scanStatus.textContent = "No barcode found. Reading visible text...";
-    const result = await withTimeout(window.Tesseract.recognize(file, "eng", {
-      logger: (message) => {
-        if (message.status === "recognizing text") {
-          const percent = Math.round((message.progress || 0) * 100);
-          elements.scanStatus.textContent = `Reading text... ${percent}%`;
-        }
+    const result = await withTimeout(recognizeBookText(file, (message) => {
+      if (message.status === "recognizing text") {
+        const percent = Math.round((message.progress || 0) * 100);
+        elements.scanStatus.textContent = `Reading text... ${percent}%`;
       }
     }), 25000, "Text scan took too long. Try typing the ISBN or title below.");
 
