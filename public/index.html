@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Random Picker</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="picker-panel" aria-label="Random picker">
+        <div class="topbar">
+          <div>
+            <p class="eyebrow">Shared picker</p>
+            <h1>Random Picker</h1>
+          </div>
+          <div class="top-actions">
+            <button id="workspaceButton" type="button">Code</button>
+            <button id="refreshButton" class="icon-button" type="button" title="Refresh lists" aria-label="Refresh lists">&orarr;</button>
+          </div>
+        </div>
+
+        <div class="selector-row">
+          <label for="listSelect">List</label>
+          <select id="listSelect"></select>
+          <button id="newListButton" type="button">New list</button>
+        </div>
+
+        <div class="result-stage" aria-live="polite">
+          <div id="spinner" class="spinner" aria-hidden="true"></div>
+          <p id="pickedItem" class="picked-item">Pick something</p>
+        </div>
+
+        <div class="action-row">
+          <button id="pickButton" class="primary-button" type="button">Pick random item</button>
+          <button id="deletePickedButton" class="danger-button" type="button" disabled>Delete picked item</button>
+        </div>
+      </section>
+
+      <section class="editor-panel" aria-label="List editor">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Edit list</p>
+            <h2 id="editorTitle">My first list</h2>
+          </div>
+          <button id="deleteListButton" class="ghost-danger" type="button">Delete list</button>
+        </div>
+
+        <label class="field">
+          <span>List name</span>
+          <input id="listNameInput" type="text" maxlength="80">
+        </label>
+
+        <label class="checkbox-field">
+          <input id="hideTitlesInput" type="checkbox">
+          <span>Hide item titles when picking</span>
+        </label>
+
+        <form id="addItemForm" class="add-row">
+          <label for="newItemTitleInput">Add item</label>
+          <input id="newItemNumberInput" class="number-input" type="text" placeholder="No.">
+          <input id="newItemTitleInput" type="text" placeholder="Title">
+          <button type="submit">Add</button>
+        </form>
+
+        <div class="import-row">
+          <label class="file-button" for="fileInput">Upload list</label>
+          <input id="fileInput" type="file" accept=".txt,.csv,.json">
+          <button id="exportButton" type="button">Download list</button>
+          <button id="deleteAllButton" class="ghost-danger" type="button">Delete all items</button>
+        </div>
+
+        <ul id="itemsList" class="items-list"></ul>
+      </section>
+    </main>
+
+    <template id="itemTemplate">
+      <li>
+        <input class="number-input" type="text" aria-label="Item number">
+        <input type="text" aria-label="Item title">
+        <button class="remove-item" type="button" aria-label="Remove item">&times;</button>
+      </li>
+    </template>
+
+    <script src="config.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

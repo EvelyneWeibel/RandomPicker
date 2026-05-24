@@ -1,0 +1,10 @@
+{
+  "name": "random-picker",
+  "version": "1.0.0",
+  "description": "A shared random picker web app with editable saved lists.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "license": "MIT"
+}
