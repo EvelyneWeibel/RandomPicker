@@ -280,15 +280,18 @@ async function fetchJson(url) {
 async function findBookMatches(isbns, candidates) {
   const lookups = [];
 
-  isbns.slice(0, 3).forEach((isbn) => {
+  isbnVariants(isbns).slice(0, 6).forEach((isbn) => {
     lookups.push(searchGoogleBooks(`isbn:${isbn}`));
-    lookups.push(searchGoogleBooks(`isbn:${isbn}`, "fr"));
+    lookups.push(searchGoogleBooks(`isbn:${isbn}`, { language: "fr", country: "FR" }));
+    lookups.push(searchGoogleBooks(isbn, { country: "FR" }));
     lookups.push(searchOpenLibraryByIsbn(isbn));
+    lookups.push(searchOpenLibraryByIsbnSearch(isbn));
   });
 
   candidates.slice(0, 4).forEach((candidate) => {
-    lookups.push(searchGoogleBooks(`intitle:${candidate}`, "fr"));
+    lookups.push(searchGoogleBooks(`intitle:${candidate}`, { language: "fr", country: "FR" }));
     lookups.push(searchGoogleBooks(`intitle:${candidate}`));
+    lookups.push(searchGoogleBooks(candidate, { language: "fr", country: "FR" }));
     lookups.push(searchOpenLibraryByTitle(candidate));
     lookups.push(searchOpenLibraryByTitle(candidate, "fr"));
   });
@@ -299,6 +302,42 @@ async function findBookMatches(isbns, candidates) {
     .flatMap((result) => result.value);
 
   return sortBooksByQuery(uniqueBooks(books), candidates, isbns).slice(0, 8);
+}
+
+function isbnVariants(isbns) {
+  const variants = [];
+  isbns.forEach((isbn) => {
+    variants.push(isbn);
+    const isbn10 = isbn13To10(isbn);
+    if (isbn10) variants.push(isbn10);
+    const isbn13 = isbn10To13(isbn);
+    if (isbn13) variants.push(isbn13);
+  });
+  return uniqueValues(variants);
+}
+
+function isbn13To10(isbn) {
+  const digits = String(isbn || "").replace(/\D/g, "");
+  if (digits.length !== 13 || !digits.startsWith("978")) return "";
+  const core = digits.slice(3, 12);
+  let sum = 0;
+  for (let index = 0; index < core.length; index += 1) {
+    sum += Number(core[index]) * (10 - index);
+  }
+  const check = (11 - (sum % 11)) % 11;
+  return `${core}${check === 10 ? "X" : check}`;
+}
+
+function isbn10To13(isbn) {
+  const value = String(isbn || "").replace(/[^0-9Xx]/g, "").toUpperCase();
+  if (value.length !== 10) return "";
+  const core = `978${value.slice(0, 9)}`;
+  let sum = 0;
+  for (let index = 0; index < core.length; index += 1) {
+    sum += Number(core[index]) * (index % 2 === 0 ? 1 : 3);
+  }
+  const check = (10 - (sum % 10)) % 10;
+  return `${core}${check}`;
 }
 
 function sortBooksByQuery(books, candidates, isbns) {
@@ -337,13 +376,14 @@ function withTimeout(promise, milliseconds, message) {
   ]);
 }
 
-async function searchGoogleBooks(query, language = "") {
+async function searchGoogleBooks(query, options = {}) {
   const params = new URLSearchParams({
     q: query,
     maxResults: "5",
     printType: "books"
   });
-  if (language) params.set("langRestrict", language);
+  if (options.language) params.set("langRestrict", options.language);
+  if (options.country) params.set("country", options.country);
   const url = `https://www.googleapis.com/books/v1/volumes?${params.toString()}`;
   const data = await fetchJson(url);
   return (data.items || []).map((item) => ({
@@ -361,6 +401,15 @@ async function searchOpenLibraryByIsbn(isbn) {
     title: book.title || "",
     author: (book.authors || []).map((author) => author.name).filter(Boolean).slice(0, 2).join(", ")
   }];
+}
+
+async function searchOpenLibraryByIsbnSearch(isbn) {
+  const url = `https://openlibrary.org/search.json?isbn=${encodeURIComponent(isbn)}&limit=5&fields=title,author_name`;
+  const data = await fetchJson(url);
+  return (data.docs || []).map((doc) => ({
+    title: doc.title || "",
+    author: (doc.author_name || []).slice(0, 2).join(", ")
+  }));
 }
 
 async function searchOpenLibraryByTitle(title, language = "") {
