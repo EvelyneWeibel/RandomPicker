@@ -282,6 +282,15 @@ async function findBookMatches(isbns, candidates) {
   return uniqueBooks(books).slice(0, 8);
 }
 
+function withTimeout(promise, milliseconds, message) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(message)), milliseconds);
+    })
+  ]);
+}
+
 async function searchGoogleBooks(query) {
   const url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=5`;
   const data = await fetchJson(url);
@@ -572,21 +581,33 @@ async function scanImage(file) {
   const list = activeList();
   if (!list) return;
 
-  elements.scanStatus.textContent = "Scanning image...";
+  elements.scanStatus.textContent = "Looking for ISBN/barcode...";
   elements.scanButton.disabled = true;
   elements.scanConfirmForm.hidden = true;
   elements.bookMatches.hidden = true;
 
   try {
     const barcodeIsbns = await detectBarcodeIsbns(file);
-    const result = await window.Tesseract.recognize(file, "eng", {
+    if (barcodeIsbns.length) {
+      elements.scanStatus.textContent = "ISBN found. Searching books...";
+      const books = await findBookMatches(barcodeIsbns, []);
+      renderBookMatches(books);
+      if (books.length) {
+        showScanConfirmation(formatBookTitle(books[0]));
+        elements.scanStatus.textContent = "Choose a book match or edit before confirming.";
+        return;
+      }
+    }
+
+    elements.scanStatus.textContent = "No barcode found. Reading visible text...";
+    const result = await withTimeout(window.Tesseract.recognize(file, "eng", {
       logger: (message) => {
         if (message.status === "recognizing text") {
           const percent = Math.round((message.progress || 0) * 100);
-          elements.scanStatus.textContent = `Scanning image... ${percent}%`;
+          elements.scanStatus.textContent = `Reading text... ${percent}%`;
         }
       }
-    });
+    }), 25000, "Text scan took too long. Try typing the ISBN or title below.");
 
     const scannedText = result.data?.text || "";
     const candidates = scannedTitleCandidates(scannedText);
@@ -821,19 +842,27 @@ elements.bookSearchForm.addEventListener("submit", async (event) => {
   const query = elements.bookSearchInput.value.trim();
   if (!query) return;
 
-  elements.scanStatus.textContent = "Searching books...";
-  elements.bookMatches.hidden = true;
-  elements.scanConfirmForm.hidden = true;
+  try {
+    elements.scanStatus.textContent = "Searching books...";
+    elements.bookMatches.hidden = true;
+    elements.scanConfirmForm.hidden = true;
 
-  const isbns = extractIsbns(query);
-  const books = await findBookMatches(isbns, isbns.length ? [] : [query]);
-  renderBookMatches(books);
+    const isbns = extractIsbns(query);
+    const books = await withTimeout(
+      findBookMatches(isbns, isbns.length ? [] : [query]),
+      12000,
+      "Book search took too long. Try a more exact title or ISBN."
+    );
+    renderBookMatches(books);
 
-  if (books.length) {
-    showScanConfirmation(formatBookTitle(books[0]));
-    elements.scanStatus.textContent = "Choose a book match or edit before confirming.";
-  } else {
-    elements.scanStatus.textContent = "No book match found. Try ISBN or a more exact title.";
+    if (books.length) {
+      showScanConfirmation(formatBookTitle(books[0]));
+      elements.scanStatus.textContent = "Choose a book match or edit before confirming.";
+    } else {
+      elements.scanStatus.textContent = "No book match found. Try ISBN or a more exact title.";
+    }
+  } catch (error) {
+    elements.scanStatus.textContent = error.message || "Book search failed.";
   }
 });
 
