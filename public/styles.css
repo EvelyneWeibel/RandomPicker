@@ -109,7 +109,8 @@ button:disabled {
 .add-row,
 .import-row,
 .scan-row,
-.scan-confirm {
+.scan-confirm,
+.book-search {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -335,7 +336,8 @@ select {
 }
 
 .scan-row button,
-.scan-confirm button {
+.scan-confirm button,
+.book-search button {
   min-height: 44px;
   padding: 0 16px;
   background: #e9f1f3;
@@ -358,14 +360,21 @@ select {
   min-width: 0;
 }
 
-.scan-candidates,
+.book-search {
+  margin: 10px 0 0;
+}
+
+.book-search input {
+  flex: 1;
+  min-width: 0;
+}
+
 .book-matches {
   margin: 10px 0 0;
   display: grid;
   gap: 6px;
 }
 
-.scan-candidates button,
 .book-matches button {
   min-height: 38px;
   padding: 6px 10px;
@@ -517,7 +526,8 @@ select {
 
   .selector-row,
   .add-row,
-  .scan-confirm {
+  .scan-confirm,
+  .book-search {
     align-items: stretch;
     flex-direction: column;
   }
@@ -525,7 +535,8 @@ select {
   select,
   .selector-row button,
   .add-row button,
-  .scan-confirm button {
+  .scan-confirm button,
+  .book-search button {
     width: 100%;
   }
 

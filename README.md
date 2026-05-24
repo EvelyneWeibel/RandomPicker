@@ -57,7 +57,7 @@ Saved lists are stored in `data/lists.json`.
 
 ## Scan new item
 
-The hosted app has a **Scan new item** button. On phones, it opens the camera/photo picker, runs OCR in the browser, searches free book databases for likely matches, auto-fills the next available number, and lets you edit both the number and title before confirming. OCR works best with a close, straight photo of just the title text or ISBN barcode. If a cover has lots of extra text, choose one of the suggested book matches or detected lines before confirming.
+The hosted app has a **Scan new item** button. On phones, it opens the camera/photo picker, looks for ISBN/book matches, auto-fills the next available number, and lets you edit both the number and title before confirming. The app only offers database matches from free book APIs, not raw OCR text. If scanning cannot find a reliable match, use the ISBN/title search field.
 
 ## Host it free with GitHub Pages and Supabase
 

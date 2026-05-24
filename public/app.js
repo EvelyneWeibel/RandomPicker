@@ -50,8 +50,9 @@ const elements = {
   scanNumberInput: document.querySelector("#scanNumberInput"),
   scanTitleInput: document.querySelector("#scanTitleInput"),
   scanCancelButton: document.querySelector("#scanCancelButton"),
+  bookSearchForm: document.querySelector("#bookSearchForm"),
+  bookSearchInput: document.querySelector("#bookSearchInput"),
   bookMatches: document.querySelector("#bookMatches"),
-  scanCandidates: document.querySelector("#scanCandidates"),
   fileInput: document.querySelector("#fileInput"),
   exportButton: document.querySelector("#exportButton"),
   deleteAllButton: document.querySelector("#deleteAllButton"),
@@ -532,32 +533,15 @@ function addItem(number, title) {
   render();
 }
 
-function showScanConfirmation(title, candidates = []) {
+function showScanConfirmation(title) {
   const list = activeList();
   if (!list) return;
 
   elements.scanNumberInput.value = nextNumber(list);
   elements.scanTitleInput.value = title;
   elements.scanConfirmForm.hidden = false;
-  renderScanCandidates(candidates);
-  elements.scanStatus.textContent = "Choose a line or edit before confirming.";
+  elements.scanStatus.textContent = "Edit before confirming.";
   elements.scanTitleInput.focus();
-}
-
-function renderScanCandidates(candidates) {
-  elements.scanCandidates.innerHTML = "";
-  elements.scanCandidates.hidden = candidates.length === 0;
-
-  candidates.forEach((candidate) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.textContent = candidate;
-    button.addEventListener("click", () => {
-      elements.scanTitleInput.value = candidate;
-      elements.scanTitleInput.focus();
-    });
-    elements.scanCandidates.append(button);
-  });
 }
 
 function renderBookMatches(books) {
@@ -570,6 +554,8 @@ function renderBookMatches(books) {
     button.textContent = formatBookTitle(book);
     button.addEventListener("click", () => {
       elements.scanTitleInput.value = formatBookTitle(book);
+      elements.scanNumberInput.value = elements.scanNumberInput.value.trim() || nextNumber(activeList());
+      elements.scanConfirmForm.hidden = false;
       elements.scanTitleInput.focus();
     });
     elements.bookMatches.append(button);
@@ -589,7 +575,6 @@ async function scanImage(file) {
   elements.scanStatus.textContent = "Scanning image...";
   elements.scanButton.disabled = true;
   elements.scanConfirmForm.hidden = true;
-  elements.scanCandidates.hidden = true;
   elements.bookMatches.hidden = true;
 
   try {
@@ -607,18 +592,13 @@ async function scanImage(file) {
     const candidates = scannedTitleCandidates(scannedText);
     const isbns = uniqueValues([...barcodeIsbns, ...extractIsbns(scannedText)]);
     const books = await findBookMatches(isbns, candidates);
-    const firstTitle = books.length ? formatBookTitle(books[0]) : candidates[0];
-
-    if (!firstTitle) {
-      elements.scanStatus.textContent = "No clean title found. Try a closer photo of only the title.";
-      return;
-    }
-
-    showScanConfirmation(firstTitle, candidates);
     renderBookMatches(books);
-    elements.scanStatus.textContent = books.length
-      ? "Choose a book match or edit before confirming."
-      : "No database match found. Choose a scanned line or edit before confirming.";
+    if (books.length) {
+      showScanConfirmation(formatBookTitle(books[0]));
+      elements.scanStatus.textContent = "Choose a book match or edit before confirming.";
+    } else {
+      elements.scanStatus.textContent = "No reliable book match found. Search ISBN or title below.";
+    }
   } catch (error) {
     elements.scanStatus.textContent = error.message || "Scan failed.";
   } finally {
@@ -824,7 +804,6 @@ elements.scanConfirmForm.addEventListener("submit", (event) => {
   addItem(elements.scanNumberInput.value, elements.scanTitleInput.value);
   elements.scanConfirmForm.hidden = true;
   elements.bookMatches.hidden = true;
-  elements.scanCandidates.hidden = true;
   elements.scanStatus.textContent = "";
   updateManualNumberPlaceholder(true);
 });
@@ -832,10 +811,30 @@ elements.scanConfirmForm.addEventListener("submit", (event) => {
 elements.scanCancelButton.addEventListener("click", () => {
   elements.scanConfirmForm.hidden = true;
   elements.bookMatches.hidden = true;
-  elements.scanCandidates.hidden = true;
   elements.scanStatus.textContent = "";
   elements.scanNumberInput.value = "";
   elements.scanTitleInput.value = "";
+});
+
+elements.bookSearchForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const query = elements.bookSearchInput.value.trim();
+  if (!query) return;
+
+  elements.scanStatus.textContent = "Searching books...";
+  elements.bookMatches.hidden = true;
+  elements.scanConfirmForm.hidden = true;
+
+  const isbns = extractIsbns(query);
+  const books = await findBookMatches(isbns, isbns.length ? [] : [query]);
+  renderBookMatches(books);
+
+  if (books.length) {
+    showScanConfirmation(formatBookTitle(books[0]));
+    elements.scanStatus.textContent = "Choose a book match or edit before confirming.";
+  } else {
+    elements.scanStatus.textContent = "No book match found. Try ISBN or a more exact title.";
+  }
 });
 
 elements.fileInput.addEventListener("change", async () => {

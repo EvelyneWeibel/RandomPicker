@@ -84,6 +84,11 @@
           <span id="scanStatus" class="scan-status"></span>
         </div>
 
+        <form id="bookSearchForm" class="book-search">
+          <input id="bookSearchInput" type="text" placeholder="Search ISBN or title">
+          <button type="submit">Find book</button>
+        </form>
+
         <form id="scanConfirmForm" class="scan-confirm" hidden>
           <input id="scanNumberInput" class="number-input" type="text" aria-label="Scanned item number">
           <input id="scanTitleInput" type="text" aria-label="Scanned item title">
@@ -91,7 +96,6 @@
           <button id="scanCancelButton" class="ghost-danger" type="button">Cancel</button>
         </form>
         <div id="bookMatches" class="book-matches" hidden></div>
-        <div id="scanCandidates" class="scan-candidates" hidden></div>
 
         <div class="import-row">
           <label class="file-button" for="fileInput">Upload list</label>
