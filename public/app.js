@@ -3,11 +3,11 @@ const state = {
   lists: [],
   pickedItem: null,
   saveTimer: null,
-  workspaceCode: null
+  session: null
 };
 
 const SUPABASE_CONFIG = window.RANDOM_PICKER_SUPABASE || {};
-const WORKSPACE_CODE_KEY = "randomPickerWorkspaceCode";
+let supabaseClient = null;
 
 const starterData = {
   activeListId: "default",
@@ -22,6 +22,11 @@ const starterData = {
 };
 
 const elements = {
+  authPanel: document.querySelector("#authPanel"),
+  authForm: document.querySelector("#authForm"),
+  authEmailInput: document.querySelector("#authEmailInput"),
+  authMessage: document.querySelector("#authMessage"),
+  appShell: document.querySelector("#appShell"),
   listSelect: document.querySelector("#listSelect"),
   newListButton: document.querySelector("#newListButton"),
   workspaceButton: document.querySelector("#workspaceButton"),
@@ -57,53 +62,48 @@ function isSupabaseConfigured() {
   return Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey);
 }
 
-function supabaseUrl(path) {
-  return `${SUPABASE_CONFIG.url.replace(/\/$/, "")}${path}`;
+function configureSupabase() {
+  if (!isSupabaseConfigured()) return;
+  if (!window.supabase?.createClient) {
+    throw new Error("Supabase client did not load.");
+  }
+  supabaseClient = window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey);
 }
 
-function getWorkspaceCode() {
-  if (!isSupabaseConfigured()) return null;
-  const savedCode = localStorage.getItem(WORKSPACE_CODE_KEY);
-  if (savedCode) return savedCode;
-
-  const enteredCode = prompt("Enter a shared picker code. Use the same code on every device.", "my-picker");
-  const cleanCode = enteredCode?.trim();
-  if (!cleanCode) return null;
-  localStorage.setItem(WORKSPACE_CODE_KEY, cleanCode);
-  return cleanCode;
+async function refreshSession() {
+  if (!supabaseClient) return null;
+  const { data, error } = await supabaseClient.auth.getSession();
+  if (error) throw error;
+  state.session = data.session;
+  renderAuthState();
+  return data.session;
 }
 
-async function supabaseRpc(functionName, payload) {
-  const headers = {
-    apikey: SUPABASE_CONFIG.anonKey,
-    "Content-Type": "application/json"
-  };
-
-  if (!SUPABASE_CONFIG.anonKey.startsWith("sb_publishable_")) {
-    headers.Authorization = `Bearer ${SUPABASE_CONFIG.anonKey}`;
+function renderAuthState() {
+  if (!isSupabaseConfigured()) {
+    elements.authPanel.hidden = true;
+    elements.appShell.hidden = false;
+    elements.workspaceButton.textContent = "Local";
+    return;
   }
 
-  const response = await fetch(supabaseUrl(`/rest/v1/rpc/${functionName}`), {
-    method: "POST",
-    headers,
-    body: JSON.stringify(payload)
-  });
-  const text = await response.text();
-  const data = text ? JSON.parse(text) : null;
-  if (!response.ok) {
-    throw new Error(data?.message || "Supabase request failed.");
-  }
-  return data;
+  const isSignedIn = Boolean(state.session?.user);
+  elements.authPanel.hidden = isSignedIn;
+  elements.appShell.hidden = !isSignedIn;
+  elements.workspaceButton.textContent = isSignedIn
+    ? state.session.user.email || "Account"
+    : "Sign in";
 }
 
 async function loadData() {
   if (isSupabaseConfigured()) {
-    state.workspaceCode = getWorkspaceCode();
-    if (!state.workspaceCode) {
-      throw new Error("A shared picker code is required.");
+    const session = state.session || await refreshSession();
+    if (!session) {
+      throw new Error("Sign in to load your picker.");
     }
-    elements.workspaceButton.textContent = `Code: ${state.workspaceCode}`;
-    return supabaseRpc("random_picker_load", { p_access_code: state.workspaceCode });
+    const { data, error } = await supabaseClient.rpc("random_picker_load");
+    if (error) throw error;
+    return data;
   }
 
   elements.workspaceButton.textContent = "Local";
@@ -114,12 +114,11 @@ async function loadData() {
 
 async function saveData(data) {
   if (isSupabaseConfigured()) {
-    state.workspaceCode = state.workspaceCode || getWorkspaceCode();
-    if (!state.workspaceCode) throw new Error("A shared picker code is required.");
-    return supabaseRpc("random_picker_save", {
-      p_access_code: state.workspaceCode,
-      p_data: data
-    });
+    const session = state.session || await refreshSession();
+    if (!session) throw new Error("Sign in to save your picker.");
+    const result = await supabaseClient.rpc("random_picker_save", { p_data: data });
+    if (result.error) throw result.error;
+    return result.data;
   }
 
   const response = await fetch("/api/lists", {
@@ -513,17 +512,13 @@ elements.refreshButton.addEventListener("click", () => {
 });
 
 elements.workspaceButton.addEventListener("click", () => {
-  if (!isSupabaseConfigured()) {
-    showMessage("Add Supabase details in config.js before publishing.");
+  if (!isSupabaseConfigured()) return;
+  if (!state.session) {
+    renderAuthState();
     return;
   }
-  const currentCode = localStorage.getItem(WORKSPACE_CODE_KEY) || "";
-  const nextCode = prompt("Shared picker code", currentCode);
-  const cleanCode = nextCode?.trim();
-  if (!cleanCode) return;
-  localStorage.setItem(WORKSPACE_CODE_KEY, cleanCode);
-  state.workspaceCode = cleanCode;
-  loadLists().catch((error) => showMessage(error.message));
+  if (!confirm(`Sign out ${state.session.user.email}?`)) return;
+  supabaseClient.auth.signOut().catch((error) => showMessage(error.message));
 });
 
 elements.pickButton.addEventListener("click", pickRandomItem);
@@ -592,6 +587,47 @@ elements.fileInput.addEventListener("change", async () => {
   }
 });
 
+elements.authForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const email = elements.authEmailInput.value.trim();
+  if (!email) return;
+
+  elements.authMessage.textContent = "Sending sign-in link...";
+  const { error } = await supabaseClient.auth.signInWithOtp({
+    email,
+    options: {
+      emailRedirectTo: `${window.location.origin}${window.location.pathname}`
+    }
+  });
+
+  elements.authMessage.textContent = error
+    ? error.message
+    : "Check your email for the sign-in link.";
+});
+
 elements.exportButton.addEventListener("click", downloadActiveList);
 
-loadLists().catch((error) => showMessage(error.message));
+async function initializeApp() {
+  configureSupabase();
+
+  if (supabaseClient) {
+    supabaseClient.auth.onAuthStateChange((_event, session) => {
+      state.session = session;
+      renderAuthState();
+      if (session) {
+        loadLists().catch((error) => showMessage(error.message));
+      }
+    });
+  }
+
+  await refreshSession();
+  if (!isSupabaseConfigured() || state.session) {
+    await loadLists();
+  }
+}
+
+initializeApp().catch((error) => {
+  elements.authMessage.textContent = error.message;
+  showMessage(error.message);
+  renderAuthState();
+});

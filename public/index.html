@@ -7,7 +7,22 @@
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
-    <main class="app-shell">
+    <section id="authPanel" class="auth-panel" hidden>
+      <div>
+        <p class="eyebrow">Account</p>
+        <h1>Random Picker</h1>
+      </div>
+      <form id="authForm" class="auth-form">
+        <label class="field">
+          <span>Email</span>
+          <input id="authEmailInput" type="email" placeholder="you@example.com" autocomplete="email" required>
+        </label>
+        <button class="primary-button" type="submit">Send sign-in link</button>
+      </form>
+      <p id="authMessage" class="status-message"></p>
+    </section>
+
+    <main id="appShell" class="app-shell">
       <section class="picker-panel" aria-label="Random picker">
         <div class="topbar">
           <div>
@@ -15,7 +30,7 @@
             <h1>Random Picker</h1>
           </div>
           <div class="top-actions">
-            <button id="workspaceButton" type="button">Code</button>
+            <button id="workspaceButton" type="button">Account</button>
             <button id="refreshButton" class="icon-button" type="button" title="Refresh lists" aria-label="Refresh lists">&orarr;</button>
           </div>
         </div>
@@ -82,6 +97,7 @@
       </li>
     </template>
 
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="config.js"></script>
     <script src="app.js"></script>
   </body>

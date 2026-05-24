@@ -57,7 +57,7 @@ Saved lists are stored in `data/lists.json`.
 
 ## Host it free with GitHub Pages and Supabase
 
-GitHub Pages hosts the files in `public/`. Supabase stores the shared picker data.
+GitHub Pages hosts the files in `public/`. Supabase Auth handles sign-in, and Supabase stores each user's picker data.
 
 ### 1. Create the Supabase database
 
@@ -67,14 +67,32 @@ GitHub Pages hosts the files in `public/`. Supabase stores the shared picker dat
 4. Paste everything from `supabase.sql`.
 5. Run it.
 
-This creates one protected table and two public functions:
+This creates one protected user-data table and two authenticated functions:
 
 - `random_picker_load`
 - `random_picker_save`
 
-The table has row level security enabled and no direct anonymous table access. The webpage can only load/save through those functions using your shared picker code.
+The table has row level security enabled and no direct anonymous table access. The webpage can only load/save through those functions after a user signs in.
 
-### 2. Add your Supabase URL and publishable key
+### 2. Configure Supabase Auth
+
+In Supabase, go to **Authentication** > **URL Configuration**.
+
+Set:
+
+```text
+Site URL: https://evelyneweibel.github.io/RandomPicker/
+```
+
+Add this redirect URL:
+
+```text
+https://evelyneweibel.github.io/RandomPicker/
+```
+
+Then go to **Authentication** > **Providers** > **Email** and make sure Email sign-in is enabled.
+
+### 3. Add your Supabase URL and publishable key
 
 In Supabase, go to **Project Settings** > **API**.
 
@@ -94,7 +112,7 @@ window.RANDOM_PICKER_SUPABASE = {
 
 The publishable key is meant for browser apps. Do not use the secret key, service role key, or direct database connection string.
 
-### 3. Enable GitHub Pages
+### 4. Enable GitHub Pages
 
 This repo includes `.github/workflows/deploy-pages.yml`, which publishes the `public/` folder.
 
@@ -103,15 +121,9 @@ In GitHub:
 1. Push the repo to GitHub.
 2. Go to **Settings** > **Pages**.
 3. Under **Build and deployment**, set **Source** to **GitHub Actions**.
-4. Push to the `main` branch.
+4. Push to the `main` or `master` branch.
 5. Open the Pages URL after the workflow finishes.
 
-### 4. Use the same shared code on each device
+### 5. Sign in
 
-When the app opens, it asks for a shared picker code. Use the same code on every device, for example:
-
-```text
-family-picker
-```
-
-Anyone with the URL, Supabase project details, and that shared code can edit that picker.
+Open the Pages URL and enter your email address. Supabase sends a sign-in link. Open that link, and your picker data will save under your account.

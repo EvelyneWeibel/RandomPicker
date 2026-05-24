@@ -16,6 +16,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 body {
   margin: 0;
   min-height: 100vh;
@@ -52,6 +56,30 @@ button:disabled {
   grid-template-columns: minmax(0, 1fr) 420px;
   gap: 20px;
   align-items: stretch;
+}
+
+.auth-panel {
+  width: min(520px, calc(100% - 32px));
+  margin: 12vh auto 0;
+  padding: 28px;
+  display: grid;
+  gap: 18px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(217, 224, 234, 0.88);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.auth-form {
+  display: grid;
+  gap: 14px;
+}
+
+.status-message {
+  min-height: 1.4em;
+  margin: 0;
+  color: var(--muted);
+  font-weight: 700;
 }
 
 .picker-panel,
@@ -146,7 +174,8 @@ label,
 }
 
 select,
-input[type="text"] {
+input[type="text"],
+input[type="email"] {
   min-height: 42px;
   border: 1px solid var(--line);
   border-radius: 8px;
