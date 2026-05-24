@@ -184,12 +184,28 @@ function nextAvailableNumber(requestedNumber, usedNumbers) {
 }
 
 function nextNumber(list) {
-  const used = new Set(list.items.map((item) => item.number));
+  const used = new Set(list.items.flatMap((item) => numberKeys(item.number)));
   let number = 1;
   while (used.has(String(number))) {
     number += 1;
   }
   return String(number);
+}
+
+function numberKeys(number) {
+  const value = String(number || "").trim();
+  if (!value) return [];
+  const base = value.split(/[.-]/)[0];
+  return base && base !== value ? [value, base] : [value];
+}
+
+function numberBase(number) {
+  return String(number || "").trim().split(/[.-]/)[0];
+}
+
+function isSubNumber(number) {
+  const value = String(number || "").trim();
+  return Boolean(value && numberBase(value) !== value);
 }
 
 function cleanScannedTitle(text) {
@@ -390,7 +406,21 @@ function updateManualNumberPlaceholder(force = false) {
 }
 
 function isNumberUnique(list, number, currentIndex = -1) {
-  return !list.items.some((item, index) => index !== currentIndex && item.number === number);
+  const value = String(number || "").trim();
+  const base = numberBase(value);
+  const subNumber = isSubNumber(value);
+
+  return !list.items.some((item, index) => {
+    if (index === currentIndex) return false;
+    const existing = String(item.number || "").trim();
+    const existingBase = numberBase(existing);
+    const existingSubNumber = isSubNumber(existing);
+
+    if (existing === value) return true;
+    if (!subNumber && existingSubNumber && existingBase === value) return true;
+    if (subNumber && existing === base) return true;
+    return false;
+  });
 }
 
 function displayItem(item, list = activeList()) {
