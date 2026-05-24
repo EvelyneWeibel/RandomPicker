@@ -50,6 +50,7 @@ const elements = {
   scanNumberInput: document.querySelector("#scanNumberInput"),
   scanTitleInput: document.querySelector("#scanTitleInput"),
   scanCancelButton: document.querySelector("#scanCancelButton"),
+  bookMatches: document.querySelector("#bookMatches"),
   scanCandidates: document.querySelector("#scanCandidates"),
   fileInput: document.querySelector("#fileInput"),
   exportButton: document.querySelector("#exportButton"),
@@ -224,6 +225,100 @@ function scoreScannedLine(line) {
   const lengthPenalty = Math.max(0, line.length - 80) * 0.8;
   const shortPenalty = line.length < 8 ? 8 : 0;
   return letterCount * 2 - digitCount - symbolCount * 4 - lengthPenalty - shortPenalty;
+}
+
+function extractIsbns(text) {
+  const candidates = text.match(/(?:97[89][-\s]?)?(?:\d[-\s]?){9,12}[\dXx]/g) || [];
+  const seen = new Set();
+  return candidates
+    .map((candidate) => candidate.replace(/[^0-9Xx]/g, "").toUpperCase())
+    .filter((isbn) => isbn.length === 10 || isbn.length === 13)
+    .filter((isbn) => {
+      if (seen.has(isbn)) return false;
+      seen.add(isbn);
+      return true;
+    });
+}
+
+function formatBookTitle(book) {
+  return book.author ? `${book.title} - ${book.author}` : book.title;
+}
+
+function uniqueBooks(books) {
+  const seen = new Set();
+  return books.filter((book) => {
+    const key = formatBookTitle(book).toLowerCase();
+    if (!book.title || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+async function fetchJson(url) {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Request failed: ${response.status}`);
+  return response.json();
+}
+
+async function findBookMatches(isbns, candidates) {
+  const lookups = [];
+
+  isbns.slice(0, 3).forEach((isbn) => {
+    lookups.push(searchGoogleBooks(`isbn:${isbn}`));
+    lookups.push(searchOpenLibraryByIsbn(isbn));
+  });
+
+  candidates.slice(0, 4).forEach((candidate) => {
+    lookups.push(searchGoogleBooks(`intitle:${candidate}`));
+    lookups.push(searchOpenLibraryByTitle(candidate));
+  });
+
+  const results = await Promise.allSettled(lookups);
+  const books = results
+    .filter((result) => result.status === "fulfilled")
+    .flatMap((result) => result.value);
+
+  return uniqueBooks(books).slice(0, 8);
+}
+
+async function searchGoogleBooks(query) {
+  const url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=5`;
+  const data = await fetchJson(url);
+  return (data.items || []).map((item) => ({
+    title: item.volumeInfo?.title || "",
+    author: (item.volumeInfo?.authors || []).slice(0, 2).join(", ")
+  }));
+}
+
+async function searchOpenLibraryByIsbn(isbn) {
+  const url = `https://openlibrary.org/isbn/${encodeURIComponent(isbn)}.json`;
+  const data = await fetchJson(url);
+  const author = Array.isArray(data.authors) && data.authors.length ? "Open Library" : "";
+  return [{ title: data.title || "", author }];
+}
+
+async function searchOpenLibraryByTitle(title) {
+  const url = `https://openlibrary.org/search.json?title=${encodeURIComponent(title)}&limit=5&fields=title,author_name`;
+  const data = await fetchJson(url);
+  return (data.docs || []).map((doc) => ({
+    title: doc.title || "",
+    author: (doc.author_name || []).slice(0, 2).join(", ")
+  }));
+}
+
+async function detectBarcodeIsbns(file) {
+  if (!("BarcodeDetector" in window)) return [];
+  try {
+    const detector = new BarcodeDetector({ formats: ["ean_13", "ean_8", "upc_a", "upc_e"] });
+    const bitmap = await createImageBitmap(file);
+    const barcodes = await detector.detect(bitmap);
+    bitmap.close?.();
+    return barcodes
+      .map((barcode) => String(barcode.rawValue || "").replace(/\D/g, ""))
+      .filter((value) => value.length === 10 || value.length === 13);
+  } catch {
+    return [];
+  }
 }
 
 function updateManualNumberPlaceholder(force = false) {
@@ -465,6 +560,22 @@ function renderScanCandidates(candidates) {
   });
 }
 
+function renderBookMatches(books) {
+  elements.bookMatches.innerHTML = "";
+  elements.bookMatches.hidden = books.length === 0;
+
+  books.forEach((book) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = formatBookTitle(book);
+    button.addEventListener("click", () => {
+      elements.scanTitleInput.value = formatBookTitle(book);
+      elements.scanTitleInput.focus();
+    });
+    elements.bookMatches.append(button);
+  });
+}
+
 async function scanImage(file) {
   if (!file) return;
   if (!window.Tesseract?.recognize) {
@@ -479,8 +590,10 @@ async function scanImage(file) {
   elements.scanButton.disabled = true;
   elements.scanConfirmForm.hidden = true;
   elements.scanCandidates.hidden = true;
+  elements.bookMatches.hidden = true;
 
   try {
+    const barcodeIsbns = await detectBarcodeIsbns(file);
     const result = await window.Tesseract.recognize(file, "eng", {
       logger: (message) => {
         if (message.status === "recognizing text") {
@@ -490,19 +603,32 @@ async function scanImage(file) {
       }
     });
 
-    const candidates = scannedTitleCandidates(result.data?.text || "");
-    if (!candidates.length) {
+    const scannedText = result.data?.text || "";
+    const candidates = scannedTitleCandidates(scannedText);
+    const isbns = uniqueValues([...barcodeIsbns, ...extractIsbns(scannedText)]);
+    const books = await findBookMatches(isbns, candidates);
+    const firstTitle = books.length ? formatBookTitle(books[0]) : candidates[0];
+
+    if (!firstTitle) {
       elements.scanStatus.textContent = "No clean title found. Try a closer photo of only the title.";
       return;
     }
 
-    showScanConfirmation(candidates[0], candidates);
+    showScanConfirmation(firstTitle, candidates);
+    renderBookMatches(books);
+    elements.scanStatus.textContent = books.length
+      ? "Choose a book match or edit before confirming."
+      : "No database match found. Choose a scanned line or edit before confirming.";
   } catch (error) {
     elements.scanStatus.textContent = error.message || "Scan failed.";
   } finally {
     elements.scanButton.disabled = false;
     elements.scanImageInput.value = "";
   }
+}
+
+function uniqueValues(values) {
+  return [...new Set(values.filter(Boolean))];
 }
 
 function parseUploadedList(fileName, text) {
@@ -697,6 +823,7 @@ elements.scanConfirmForm.addEventListener("submit", (event) => {
   event.preventDefault();
   addItem(elements.scanNumberInput.value, elements.scanTitleInput.value);
   elements.scanConfirmForm.hidden = true;
+  elements.bookMatches.hidden = true;
   elements.scanCandidates.hidden = true;
   elements.scanStatus.textContent = "";
   updateManualNumberPlaceholder(true);
@@ -704,6 +831,7 @@ elements.scanConfirmForm.addEventListener("submit", (event) => {
 
 elements.scanCancelButton.addEventListener("click", () => {
   elements.scanConfirmForm.hidden = true;
+  elements.bookMatches.hidden = true;
   elements.scanCandidates.hidden = true;
   elements.scanStatus.textContent = "";
   elements.scanNumberInput.value = "";
