@@ -50,6 +50,7 @@ const elements = {
   scanNumberInput: document.querySelector("#scanNumberInput"),
   scanTitleInput: document.querySelector("#scanTitleInput"),
   scanCancelButton: document.querySelector("#scanCancelButton"),
+  scanCandidates: document.querySelector("#scanCandidates"),
   fileInput: document.querySelector("#fileInput"),
   exportButton: document.querySelector("#exportButton"),
   deleteAllButton: document.querySelector("#deleteAllButton"),
@@ -199,6 +200,40 @@ function cleanScannedTitle(text) {
     .trim();
 }
 
+function scannedTitleCandidates(text) {
+  const seen = new Set();
+  return text
+    .split(/\r?\n/)
+    .map((line) => cleanScannedTitle(line))
+    .filter((line) => line.length >= 3)
+    .filter((line) => /[A-Za-zÀ-ÖØ-öø-ÿ]/.test(line))
+    .filter((line) => {
+      const normalized = line.toLowerCase();
+      if (seen.has(normalized)) return false;
+      seen.add(normalized);
+      return true;
+    })
+    .sort((a, b) => scoreScannedLine(b) - scoreScannedLine(a))
+    .slice(0, 8);
+}
+
+function scoreScannedLine(line) {
+  const letterCount = (line.match(/[A-Za-zÀ-ÖØ-öø-ÿ]/g) || []).length;
+  const digitCount = (line.match(/\d/g) || []).length;
+  const symbolCount = (line.match(/[^A-Za-zÀ-ÖØ-öø-ÿ0-9 '\-:,&.]/g) || []).length;
+  const lengthPenalty = Math.max(0, line.length - 80) * 0.8;
+  const shortPenalty = line.length < 8 ? 8 : 0;
+  return letterCount * 2 - digitCount - symbolCount * 4 - lengthPenalty - shortPenalty;
+}
+
+function updateManualNumberPlaceholder(force = false) {
+  const list = activeList();
+  if (!list) return;
+  if (force || !elements.newItemNumberInput.value.trim()) {
+    elements.newItemNumberInput.value = nextNumber(list);
+  }
+}
+
 function isNumberUnique(list, number, currentIndex = -1) {
   return !list.items.some((item, index) => index !== currentIndex && item.number === number);
 }
@@ -260,6 +295,7 @@ function render() {
   elements.editorTitle.textContent = list.name;
   elements.listNameInput.value = list.name;
   elements.hideTitlesInput.checked = list.hideTitles;
+  updateManualNumberPlaceholder();
   elements.deleteListButton.disabled = state.lists.length < 2;
   elements.deleteAllButton.disabled = list.items.length === 0;
   elements.pickButton.disabled = list.items.length === 0;
@@ -395,10 +431,38 @@ function addItem(number, title) {
     return;
   }
 
-  list.items.push({ number: cleanNumber, title: cleanTitle });
+    list.items.push({ number: cleanNumber, title: cleanTitle });
   state.pickedItem = null;
   queueSave();
   render();
+}
+
+function showScanConfirmation(title, candidates = []) {
+  const list = activeList();
+  if (!list) return;
+
+  elements.scanNumberInput.value = nextNumber(list);
+  elements.scanTitleInput.value = title;
+  elements.scanConfirmForm.hidden = false;
+  renderScanCandidates(candidates);
+  elements.scanStatus.textContent = "Choose a line or edit before confirming.";
+  elements.scanTitleInput.focus();
+}
+
+function renderScanCandidates(candidates) {
+  elements.scanCandidates.innerHTML = "";
+  elements.scanCandidates.hidden = candidates.length === 0;
+
+  candidates.forEach((candidate) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = candidate;
+    button.addEventListener("click", () => {
+      elements.scanTitleInput.value = candidate;
+      elements.scanTitleInput.focus();
+    });
+    elements.scanCandidates.append(button);
+  });
 }
 
 async function scanImage(file) {
@@ -414,6 +478,7 @@ async function scanImage(file) {
   elements.scanStatus.textContent = "Scanning image...";
   elements.scanButton.disabled = true;
   elements.scanConfirmForm.hidden = true;
+  elements.scanCandidates.hidden = true;
 
   try {
     const result = await window.Tesseract.recognize(file, "eng", {
@@ -425,17 +490,13 @@ async function scanImage(file) {
       }
     });
 
-    const title = cleanScannedTitle(result.data?.text || "");
-    if (!title) {
-      elements.scanStatus.textContent = "No text found. Try a clearer photo.";
+    const candidates = scannedTitleCandidates(result.data?.text || "");
+    if (!candidates.length) {
+      elements.scanStatus.textContent = "No clean title found. Try a closer photo of only the title.";
       return;
     }
 
-    elements.scanNumberInput.value = nextNumber(list);
-    elements.scanTitleInput.value = title;
-    elements.scanConfirmForm.hidden = false;
-    elements.scanStatus.textContent = "Review and confirm.";
-    elements.scanTitleInput.focus();
+    showScanConfirmation(candidates[0], candidates);
   } catch (error) {
     elements.scanStatus.textContent = error.message || "Scan failed.";
   } finally {
@@ -619,7 +680,7 @@ elements.hideTitlesInput.addEventListener("change", () => {
 elements.addItemForm.addEventListener("submit", (event) => {
   event.preventDefault();
   addItem(elements.newItemNumberInput.value, elements.newItemTitleInput.value);
-  elements.newItemNumberInput.value = "";
+  updateManualNumberPlaceholder(true);
   elements.newItemTitleInput.value = "";
   elements.newItemTitleInput.focus();
 });
@@ -636,11 +697,14 @@ elements.scanConfirmForm.addEventListener("submit", (event) => {
   event.preventDefault();
   addItem(elements.scanNumberInput.value, elements.scanTitleInput.value);
   elements.scanConfirmForm.hidden = true;
+  elements.scanCandidates.hidden = true;
   elements.scanStatus.textContent = "";
+  updateManualNumberPlaceholder(true);
 });
 
 elements.scanCancelButton.addEventListener("click", () => {
   elements.scanConfirmForm.hidden = true;
+  elements.scanCandidates.hidden = true;
   elements.scanStatus.textContent = "";
   elements.scanNumberInput.value = "";
   elements.scanTitleInput.value = "";

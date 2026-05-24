@@ -358,6 +358,21 @@ select {
   min-width: 0;
 }
 
+.scan-candidates {
+  margin: 10px 0 0;
+  display: grid;
+  gap: 6px;
+}
+
+.scan-candidates button {
+  min-height: 38px;
+  padding: 6px 10px;
+  overflow-wrap: anywhere;
+  text-align: left;
+  background: #f4f8f9;
+  color: var(--accent-strong);
+}
+
 .number-input {
   width: 76px;
   flex: 0 0 76px;
