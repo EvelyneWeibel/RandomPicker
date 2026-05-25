@@ -235,6 +235,8 @@ select {
 
 .result-stage.is-spinning .picked-item {
   opacity: 0.32;
+  width: min(84%, 620px);
+  font-size: clamp(1.65rem, 5vw, 3.4rem);
   transform: translateY(58px) scale(0.88);
 }
 
