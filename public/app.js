@@ -294,37 +294,39 @@ function uniqueBooks(books) {
 }
 
 async function fetchJson(url) {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`Request failed: ${response.status}`);
-  return response.json();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 6500);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) throw new Error(`Request failed: ${response.status}`);
+    return response.json();
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function findBookMatches(isbns, candidates) {
-  const preferredLookups = [];
-  const fallbackLookups = [];
+  const lookups = [];
 
   isbnVariants(isbns).slice(0, 6).forEach((isbn) => {
-    preferredLookups.push(() => searchOpenLibraryByIsbnSearch(isbn, 140));
-    preferredLookups.push(() => searchOpenLibraryByIsbn(isbn, 135));
-    preferredLookups.push(() => searchOpenLibraryIsbnJson(isbn, 130));
-    fallbackLookups.push(() => searchGoogleBooks(`isbn:${isbn}`, { sourceScore: 110 }));
-    fallbackLookups.push(() => searchGoogleBooks(`isbn:${isbn}`, { language: "fr", country: "FR", sourceScore: 108 }));
+    lookups.push(() => searchOpenLibraryByIsbnSearch(isbn, 150));
+    lookups.push(() => searchOpenLibraryByIsbn(isbn, 145));
+    lookups.push(() => searchOpenLibraryIsbnJson(isbn, 140));
+    lookups.push(() => searchGoogleBooks(`isbn:${isbn}`, { language: "fr", country: "FR", sourceScore: 136 }));
+    lookups.push(() => searchGoogleBooks(`isbn:${isbn}`, { sourceScore: 132 }));
   });
 
   candidates.slice(0, 4).forEach((candidate) => {
-    preferredLookups.push(() => searchOpenLibraryByTitle(candidate, "", 82));
-    preferredLookups.push(() => searchOpenLibraryByTitle(candidate, "fr", 80));
-    fallbackLookups.push(() => searchGoogleBooks(`intitle:${candidate}`, { sourceScore: 70 }));
-    fallbackLookups.push(() => searchGoogleBooks(candidate, { sourceScore: 65 }));
-    fallbackLookups.push(() => searchGoogleBooks(`intitle:${candidate}`, { language: "fr", country: "FR", sourceScore: 58 }));
-    fallbackLookups.push(() => searchGoogleBooks(candidate, { language: "fr", country: "FR", sourceScore: 55 }));
+    lookups.push(() => searchGoogleBooks(`intitle:${candidate}`, { language: "fr", country: "FR", sourceScore: 116 }));
+    lookups.push(() => searchGoogleBooks(candidate, { language: "fr", country: "FR", sourceScore: 112 }));
+    lookups.push(() => searchOpenLibraryByTitle(candidate, "", 108));
+    lookups.push(() => searchOpenLibraryByTitle(candidate, "fr", 104));
+    lookups.push(() => searchOpenLibraryByQuery(candidate, 96));
+    lookups.push(() => searchGoogleBooks(`intitle:${candidate}`, { sourceScore: 78 }));
+    lookups.push(() => searchGoogleBooks(candidate, { sourceScore: 72 }));
   });
 
-  let books = await collectBookLookups(preferredLookups);
-  if (!books.length) {
-    books = await collectBookLookups(fallbackLookups);
-  }
-
+  const books = await collectBookLookups(lookups);
   return sortBooksByQuery(uniqueBooks(books), candidates, isbns).slice(0, 8);
 }
 
@@ -407,19 +409,49 @@ function sortBooksByQuery(books, candidates, isbns) {
 
 function bookScore(book, normalizedCandidates, hasIsbn) {
   const title = normalizeSearchText(book.title);
+  const titleVariants = searchTextVariants(title);
+  const candidateVariants = normalizedCandidates.flatMap(searchTextVariants);
   const sourceBonus = book.sourceScore || 0;
   const authorBonus = book.author ? 8 : 0;
-  const exactBonus = normalizedCandidates.some((candidate) => candidate && title === candidate) ? 50 : 0;
-  const includesBonus = normalizedCandidates.some((candidate) => candidate && title.includes(candidate)) ? 25 : 0;
-  const candidateIncludesBonus = normalizedCandidates.some((candidate) => candidate && candidate.includes(title)) ? 10 : 0;
+  const popularityBonus = Math.min(book.editionCount || 0, 80) * 0.8;
+  const exactBonus = candidateVariants.some((candidate) => candidate && titleVariants.includes(candidate)) ? 180 : 0;
+  const startsBonus = candidateVariants.some((candidate) => candidate && titleVariants.some((variant) => variant.startsWith(candidate))) ? 42 : 0;
+  const includesBonus = candidateVariants.some((candidate) => candidate && titleVariants.some((variant) => variant.includes(candidate))) ? 32 : 0;
+  const candidateIncludesBonus = candidateVariants.some((candidate) => candidate && titleVariants.some((variant) => candidate.includes(variant))) ? 16 : 0;
+  const overlapBonus = Math.max(0, ...normalizedCandidates.map((candidate) => tokenOverlapScore(title, candidate)));
+  const lengthPenalty = Math.max(0, ...normalizedCandidates.map((candidate) => titleLengthPenalty(title, candidate)));
   const isbnBonus = hasIsbn ? 20 : 0;
-  return sourceBonus + authorBonus + exactBonus + includesBonus + candidateIncludesBonus + isbnBonus;
+  return sourceBonus + authorBonus + popularityBonus + exactBonus + startsBonus + includesBonus + candidateIncludesBonus + overlapBonus + isbnBonus - lengthPenalty;
+}
+
+function searchTextVariants(text) {
+  const normalized = normalizeSearchText(text);
+  const compact = normalized.replace(/\s+/g, "");
+  const variants = [normalized, compact];
+  if (compact.startsWith("le")) variants.push(`l${compact.slice(2)}`);
+  return uniqueValues(variants);
+}
+
+function tokenOverlapScore(title, candidate) {
+  if (!title || !candidate) return 0;
+  const titleWords = new Set(title.split(" ").filter((word) => word.length > 2));
+  const candidateWords = candidate.split(" ").filter((word) => word.length > 2);
+  if (!titleWords.size || !candidateWords.length) return 0;
+  const matches = candidateWords.filter((word) => titleWords.has(word)).length;
+  return (matches / candidateWords.length) * 28;
+}
+
+function titleLengthPenalty(title, candidate) {
+  if (!title || !candidate || title === candidate || !title.includes(candidate)) return 0;
+  const extraWords = title.split(" ").length - candidate.split(" ").length;
+  return Math.max(0, extraWords) * 22;
 }
 
 function normalizeSearchText(text) {
   return String(text || "")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
+    .replace(/['’`´]\s*/g, "")
     .replace(/[^a-z0-9]+/gi, " ")
     .trim()
     .toLowerCase();
@@ -447,6 +479,7 @@ async function searchGoogleBooks(query, options = {}) {
   return (data.items || []).map((item) => ({
     title: item.volumeInfo?.title || "",
     author: (item.volumeInfo?.authors || []).slice(0, 2).join(", "),
+    editionCount: 0,
     sourceScore: options.sourceScore || 0
   }));
 }
@@ -459,16 +492,18 @@ async function searchOpenLibraryByIsbn(isbn, sourceScore = 0) {
   return [{
     title: book.title || "",
     author: (book.authors || []).map((author) => author.name).filter(Boolean).slice(0, 2).join(", "),
+    editionCount: 0,
     sourceScore
   }];
 }
 
 async function searchOpenLibraryByIsbnSearch(isbn, sourceScore = 0) {
-  const url = `https://openlibrary.org/search.json?isbn=${encodeURIComponent(isbn)}&limit=5&fields=title,author_name`;
+  const url = `https://openlibrary.org/search.json?isbn=${encodeURIComponent(isbn)}&limit=5&fields=title,author_name,edition_count`;
   const data = await fetchJson(url);
   return (data.docs || []).map((doc) => ({
     title: doc.title || "",
     author: (doc.author_name || []).slice(0, 2).join(", "),
+    editionCount: doc.edition_count || 0,
     sourceScore
   }));
 }
@@ -486,6 +521,7 @@ async function searchOpenLibraryIsbnJson(isbn, sourceScore = 0) {
   return [{
     title: book.title || "",
     author,
+    editionCount: 0,
     sourceScore
   }];
 }
@@ -494,7 +530,7 @@ async function searchOpenLibraryByTitle(title, language = "", sourceScore = 0) {
   const params = new URLSearchParams({
     title,
     limit: "5",
-    fields: "title,author_name"
+    fields: "title,author_name,edition_count"
   });
   if (language === "fr") {
     params.set("lang", "fr");
@@ -506,6 +542,23 @@ async function searchOpenLibraryByTitle(title, language = "", sourceScore = 0) {
   return (data.docs || []).map((doc) => ({
     title: doc.title || "",
     author: (doc.author_name || []).slice(0, 2).join(", "),
+    editionCount: doc.edition_count || 0,
+    sourceScore
+  }));
+}
+
+async function searchOpenLibraryByQuery(query, sourceScore = 0) {
+  const params = new URLSearchParams({
+    q: query,
+    limit: "5",
+    fields: "title,author_name,edition_count"
+  });
+  const url = `https://openlibrary.org/search.json?${params.toString()}`;
+  const data = await fetchJson(url);
+  return (data.docs || []).map((doc) => ({
+    title: doc.title || "",
+    author: (doc.author_name || []).slice(0, 2).join(", "),
+    editionCount: doc.edition_count || 0,
     sourceScore
   }));
 }
