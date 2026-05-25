@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Random Picker</title>
-    <link rel="stylesheet" href="styles.css?v=20260525-2">
+    <link rel="stylesheet" href="styles.css?v=20260525-3">
   </head>
   <body>
     <section id="authPanel" class="auth-panel" hidden>
@@ -38,6 +38,11 @@
           <label for="listSelect">List</label>
           <select id="listSelect"></select>
           <button id="newListButton" type="button">New list</button>
+        </div>
+
+        <div class="global-search">
+          <input id="globalSearchInput" type="text" placeholder="Search all lists">
+          <div id="globalSearchResults" class="global-search-results" hidden></div>
         </div>
 
         <div class="result-stage" aria-live="polite">
@@ -110,6 +115,12 @@
           <button id="deleteAllButton" class="ghost-danger" type="button">Delete all items</button>
         </div>
 
+        <label class="field list-search-field">
+          <span>Search this list</span>
+          <input id="listSearchInput" type="text" placeholder="Search number or title">
+        </label>
+        <p id="listSearchStatus" class="search-status"></p>
+
         <ul id="itemsList" class="items-list"></ul>
       </section>
     </main>
@@ -125,6 +136,6 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <script src="config.js"></script>
-    <script src="app.js?v=20260525-1"></script>
+    <script src="app.js?v=20260525-2"></script>
   </body>
 </html>

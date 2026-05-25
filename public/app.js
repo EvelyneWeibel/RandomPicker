@@ -3,7 +3,9 @@ const state = {
   lists: [],
   pickedItem: null,
   saveTimer: null,
-  session: null
+  session: null,
+  listSearchQuery: "",
+  globalSearchQuery: ""
 };
 
 const SUPABASE_CONFIG = window.RANDOM_PICKER_SUPABASE || {};
@@ -33,6 +35,8 @@ const elements = {
   appShell: document.querySelector("#appShell"),
   listSelect: document.querySelector("#listSelect"),
   newListButton: document.querySelector("#newListButton"),
+  globalSearchInput: document.querySelector("#globalSearchInput"),
+  globalSearchResults: document.querySelector("#globalSearchResults"),
   workspaceButton: document.querySelector("#workspaceButton"),
   refreshButton: document.querySelector("#refreshButton"),
   pickButton: document.querySelector("#pickButton"),
@@ -61,6 +65,8 @@ const elements = {
   fileInput: document.querySelector("#fileInput"),
   exportButton: document.querySelector("#exportButton"),
   deleteAllButton: document.querySelector("#deleteAllButton"),
+  listSearchInput: document.querySelector("#listSearchInput"),
+  listSearchStatus: document.querySelector("#listSearchStatus"),
   itemsList: document.querySelector("#itemsList"),
   itemTemplate: document.querySelector("#itemTemplate")
 };
@@ -609,6 +615,8 @@ function render() {
   elements.editorTitle.textContent = `${list.icon} ${list.name}`;
   elements.listNameInput.value = list.name;
   elements.listIconInput.value = list.icon;
+  elements.listSearchInput.value = state.listSearchQuery;
+  elements.globalSearchInput.value = state.globalSearchQuery;
   elements.hideTitlesInput.checked = list.hideTitles;
   updateManualNumberPlaceholder();
   elements.deleteListButton.disabled = state.lists.length < 2;
@@ -616,6 +624,7 @@ function render() {
   elements.pickButton.disabled = list.items.length === 0;
   elements.deletePickedButton.disabled = !state.pickedItem;
   renderItems(list);
+  renderGlobalSearchResults();
 
   if (state.pickedItem) {
     elements.pickedItem.textContent = displayItem(state.pickedItem, list);
@@ -636,7 +645,18 @@ function renderListIconOptions() {
 
 function renderItems(list) {
   elements.itemsList.innerHTML = "";
-  list.items.forEach((item, index) => {
+  const query = normalizeSearchText(state.listSearchQuery);
+  const visibleItems = query
+    ? list.items
+        .map((item, index) => ({ item, index }))
+        .filter(({ item }) => itemMatchesQuery(item, query))
+    : list.items.map((item, index) => ({ item, index }));
+
+  elements.listSearchStatus.textContent = query
+    ? `${visibleItems.length} of ${list.items.length} items`
+    : "";
+
+  visibleItems.forEach(({ item, index }) => {
     const row = elements.itemTemplate.content.firstElementChild.cloneNode(true);
     const inputs = row.querySelectorAll("input");
     const numberInput = inputs[0];
@@ -688,6 +708,66 @@ function renderItems(list) {
 
     elements.itemsList.append(row);
   });
+}
+
+function itemMatchesQuery(item, normalizedQuery) {
+  return normalizeSearchText(`${item.number} ${item.title}`).includes(normalizedQuery);
+}
+
+function renderGlobalSearchResults() {
+  const query = normalizeSearchText(state.globalSearchQuery);
+  elements.globalSearchResults.innerHTML = "";
+
+  if (!query) {
+    elements.globalSearchResults.hidden = true;
+    return;
+  }
+
+  const matches = [];
+  state.lists.forEach((list) => {
+    list.items.forEach((item) => {
+      if (itemMatchesQuery(item, query)) {
+        matches.push({ list, item });
+      }
+    });
+  });
+
+  elements.globalSearchResults.hidden = false;
+  if (!matches.length) {
+    const empty = document.createElement("p");
+    empty.className = "search-empty";
+    empty.textContent = "No items found";
+    elements.globalSearchResults.append(empty);
+    return;
+  }
+
+  matches.slice(0, 12).forEach(({ list, item }) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.innerHTML = `
+      <span class="global-result-list"></span>
+      <span class="global-result-item"></span>
+    `;
+    button.querySelector(".global-result-list").textContent = `${list.icon} ${list.name}`;
+    button.querySelector(".global-result-item").textContent = `${item.number} · ${item.title}`;
+    button.addEventListener("click", () => {
+      state.activeListId = list.id;
+      state.listSearchQuery = item.title;
+      elements.listSearchInput.value = state.listSearchQuery;
+      state.pickedItem = null;
+      queueSave();
+      render();
+      elements.listSearchInput.focus();
+    });
+    elements.globalSearchResults.append(button);
+  });
+
+  if (matches.length > 12) {
+    const more = document.createElement("p");
+    more.className = "search-empty";
+    more.textContent = `${matches.length - 12} more matches`;
+    elements.globalSearchResults.append(more);
+  }
 }
 
 function renderPickerButtons() {
@@ -964,9 +1044,20 @@ function csvCell(value) {
 
 elements.listSelect.addEventListener("change", () => {
   state.activeListId = elements.listSelect.value;
+  state.listSearchQuery = "";
   state.pickedItem = null;
   queueSave();
   render();
+});
+
+elements.listSearchInput.addEventListener("input", () => {
+  state.listSearchQuery = elements.listSearchInput.value;
+  renderItems(activeList());
+});
+
+elements.globalSearchInput.addEventListener("input", () => {
+  state.globalSearchQuery = elements.globalSearchInput.value;
+  renderGlobalSearchResults();
 });
 
 elements.newListButton.addEventListener("click", () => {
