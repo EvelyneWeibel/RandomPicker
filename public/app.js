@@ -262,16 +262,29 @@ function scoreScannedLine(line) {
 }
 
 function extractIsbns(text) {
-  const candidates = text.match(/(?:97[89][-\s]?)?(?:\d[-\s]?){9,12}[\dXx]/g) || [];
   const seen = new Set();
-  return candidates
-    .map((candidate) => candidate.replace(/[^0-9Xx]/g, "").toUpperCase())
+  return isbnCandidateTexts(text)
+    .flatMap((sourceText) => sourceText.match(/(?:97[89][-\s.:]*)?(?:\d[-\s.:]*){9,12}[\dXx]/g) || [])
+    .map(cleanIsbnCandidate)
     .filter(isValidIsbn)
     .filter((isbn) => {
       if (seen.has(isbn)) return false;
       seen.add(isbn);
       return true;
     });
+}
+
+function isbnCandidateTexts(text) {
+  const source = String(text || "");
+  const ocrNormalized = source
+    .replace(/[Oo]/g, "0")
+    .replace(/[Il|]/g, "1")
+    .replace(/[Ss]/g, "5");
+  return source === ocrNormalized ? [source] : [source, ocrNormalized];
+}
+
+function cleanIsbnCandidate(candidate) {
+  return String(candidate || "").replace(/[^0-9Xx]/g, "").toUpperCase();
 }
 
 function formatBookTitle(book) {
@@ -1047,6 +1060,17 @@ function renderBookMatches(books) {
   });
 }
 
+async function showBooksFromIsbns(isbns) {
+  if (!isbns.length) return false;
+  elements.scanStatus.textContent = `ISBN ${isbns[0]} found. Searching books...`;
+  const books = await findBookMatches(isbns, []);
+  renderBookMatches(books);
+  if (!books.length) return false;
+  showScanConfirmation(formatBookTitle(books[0]));
+  elements.scanStatus.textContent = "Choose a book match or edit before confirming.";
+  return true;
+}
+
 async function scanImage(file) {
   if (!file) return;
   const list = activeList();
@@ -1059,16 +1083,7 @@ async function scanImage(file) {
 
   try {
     const barcodeIsbns = await detectBarcodeIsbns(file);
-    if (barcodeIsbns.length) {
-      elements.scanStatus.textContent = "ISBN found. Searching books...";
-      const books = await findBookMatches(barcodeIsbns, []);
-      renderBookMatches(books);
-      if (books.length) {
-        showScanConfirmation(formatBookTitle(books[0]));
-        elements.scanStatus.textContent = "Choose a book match or edit before confirming.";
-        return;
-      }
-    }
+    if (await showBooksFromIsbns(barcodeIsbns)) return;
 
     if (!window.Tesseract?.recognize) {
       elements.scanStatus.textContent = "No barcode found. Text scan could not load. Try Search ISBN or title below.";
@@ -1084,9 +1099,11 @@ async function scanImage(file) {
     }), 25000, "Text scan took too long. Try typing the ISBN or title below.");
 
     const scannedText = result.data?.text || "";
-    const candidates = scannedTitleCandidates(scannedText);
     const isbns = uniqueValues([...barcodeIsbns, ...extractIsbns(scannedText)]);
-    const books = await findBookMatches(isbns, candidates);
+    if (await showBooksFromIsbns(isbns)) return;
+
+    const candidates = scannedTitleCandidates(scannedText);
+    const books = await findBookMatches([], candidates);
     renderBookMatches(books);
     if (books.length) {
       showScanConfirmation(formatBookTitle(books[0]));
