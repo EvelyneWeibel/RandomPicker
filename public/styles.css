@@ -234,7 +234,8 @@ select {
 }
 
 .result-stage.is-spinning .picked-item {
-  transform: translateY(-92px);
+  opacity: 0.32;
+  transform: translateY(58px) scale(0.88);
 }
 
 .picked-item {
@@ -247,10 +248,17 @@ select {
   font-size: 5.2rem;
   font-weight: 900;
   line-height: 0.98;
+  transition: opacity 180ms ease, transform 180ms ease;
 }
 
 .picked-item.pop {
   animation: pop 500ms ease;
+}
+
+#listIconInput {
+  width: 84px;
+  min-width: 84px;
+  font-size: 1.35rem;
 }
 
 .primary-button,

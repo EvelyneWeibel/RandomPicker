@@ -9,12 +9,16 @@ const state = {
 const SUPABASE_CONFIG = window.RANDOM_PICKER_SUPABASE || {};
 let supabaseClient = null;
 
+const LIST_ICONS = ["📋", "📚", "🎬", "🎲", "🍽️", "🛒", "🎁", "⭐", "💡", "🏠", "✈️", "🎮", "🎵", "🧩"];
+const DEFAULT_LIST_ICON = LIST_ICONS[0];
+
 const starterData = {
   activeListId: "default",
   lists: [
     {
       id: "default",
       name: "My first list",
+      icon: DEFAULT_LIST_ICON,
       hideTitles: false,
       items: []
     }
@@ -39,6 +43,7 @@ const elements = {
   editorTitle: document.querySelector("#editorTitle"),
   deleteListButton: document.querySelector("#deleteListButton"),
   listNameInput: document.querySelector("#listNameInput"),
+  listIconInput: document.querySelector("#listIconInput"),
   hideTitlesInput: document.querySelector("#hideTitlesInput"),
   addItemForm: document.querySelector("#addItemForm"),
   newItemNumberInput: document.querySelector("#newItemNumberInput"),
@@ -145,6 +150,7 @@ function normalizeList(list) {
   return {
     id: String(list?.id || createId()),
     name: String(list?.name || "Untitled list"),
+    icon: normalizeListIcon(list?.icon),
     hideTitles: Boolean(list?.hideTitles),
     items: Array.isArray(list?.items)
       ? list.items
@@ -152,6 +158,10 @@ function normalizeList(list) {
           .filter((item) => item.title)
       : []
   };
+}
+
+function normalizeListIcon(icon) {
+  return LIST_ICONS.includes(icon) ? icon : DEFAULT_LIST_ICON;
 }
 
 function normalizeItem(item, index, usedNumbers) {
@@ -591,13 +601,14 @@ function render() {
   state.lists.forEach((currentList) => {
     const option = document.createElement("option");
     option.value = currentList.id;
-    option.textContent = `${currentList.name} (${currentList.items.length})`;
+    option.textContent = `${currentList.icon} ${currentList.name} (${currentList.items.length})`;
     option.selected = currentList.id === list.id;
     elements.listSelect.append(option);
   });
 
-  elements.editorTitle.textContent = list.name;
+  elements.editorTitle.textContent = `${list.icon} ${list.name}`;
   elements.listNameInput.value = list.name;
+  elements.listIconInput.value = list.icon;
   elements.hideTitlesInput.checked = list.hideTitles;
   updateManualNumberPlaceholder();
   elements.deleteListButton.disabled = state.lists.length < 2;
@@ -611,6 +622,16 @@ function render() {
   } else {
     elements.pickedItem.textContent = list.items.length ? "Pick something" : "Add items first";
   }
+}
+
+function renderListIconOptions() {
+  elements.listIconInput.innerHTML = "";
+  LIST_ICONS.forEach((icon) => {
+    const option = document.createElement("option");
+    option.value = icon;
+    option.textContent = icon;
+    elements.listIconInput.append(option);
+  });
 }
 
 function renderItems(list) {
@@ -925,13 +946,20 @@ function parseCsvRows(text) {
 
 function downloadActiveList() {
   const list = activeList();
-  const blob = new Blob([JSON.stringify(list, null, 2)], { type: "application/json" });
+  const rows = [["number", "title"], ...list.items.map((item) => [item.number, item.title])];
+  const csv = rows.map((row) => row.map(csvCell).join(",")).join("\r\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `${list.name.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "list"}.json`;
+  link.download = `${list.name.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "list"}.csv`;
   link.click();
   URL.revokeObjectURL(url);
+}
+
+function csvCell(value) {
+  const text = String(value ?? "");
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
 elements.listSelect.addEventListener("change", () => {
@@ -944,7 +972,7 @@ elements.listSelect.addEventListener("change", () => {
 elements.newListButton.addEventListener("click", () => {
   const name = prompt("List name", "New list");
   if (!name) return;
-  const list = { id: createId(), name: name.trim() || "New list", hideTitles: false, items: [] };
+  const list = { id: createId(), name: name.trim() || "New list", icon: DEFAULT_LIST_ICON, hideTitles: false, items: [] };
   state.lists.push(list);
   state.activeListId = list.id;
   state.pickedItem = null;
@@ -985,9 +1013,19 @@ elements.listNameInput.addEventListener("input", () => {
   const list = activeList();
   if (!list) return;
   list.name = elements.listNameInput.value.trim() || "Untitled list";
-  elements.editorTitle.textContent = list.name;
+  elements.editorTitle.textContent = `${list.icon} ${list.name}`;
   const selectedOption = elements.listSelect.querySelector(`option[value="${CSS.escape(list.id)}"]`);
-  if (selectedOption) selectedOption.textContent = `${list.name} (${list.items.length})`;
+  if (selectedOption) selectedOption.textContent = `${list.icon} ${list.name} (${list.items.length})`;
+  queueSave();
+});
+
+elements.listIconInput.addEventListener("change", () => {
+  const list = activeList();
+  if (!list) return;
+  list.icon = normalizeListIcon(elements.listIconInput.value);
+  elements.editorTitle.textContent = `${list.icon} ${list.name}`;
+  const selectedOption = elements.listSelect.querySelector(`option[value="${CSS.escape(list.id)}"]`);
+  if (selectedOption) selectedOption.textContent = `${list.icon} ${list.name} (${list.items.length})`;
   queueSave();
 });
 
@@ -1071,6 +1109,7 @@ elements.fileInput.addEventListener("change", async () => {
     const list = {
       id: createId(),
       name: file.name.replace(/\.[^.]+$/, "") || "Uploaded list",
+      icon: DEFAULT_LIST_ICON,
       hideTitles: false,
       items
     };
@@ -1108,6 +1147,7 @@ elements.exportButton.addEventListener("click", downloadActiveList);
 
 async function initializeApp() {
   configureSupabase();
+  renderListIconOptions();
 
   if (supabaseClient) {
     supabaseClient.auth.onAuthStateChange((_event, session) => {

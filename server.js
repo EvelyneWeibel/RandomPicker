@@ -22,6 +22,7 @@ const defaultData = {
     {
       id: "default",
       name: "My first list",
+      icon: "📋",
       hideTitles: false,
       items: [
         { number: "1", title: "Pizza" },
@@ -64,6 +65,7 @@ function normalizeData(data) {
       return {
         id,
         name: String(list?.name || "Untitled list").slice(0, 80),
+        icon: normalizeListIcon(list?.icon),
         hideTitles: Boolean(list?.hideTitles),
         items: normalizeItems(list?.items)
       };
@@ -71,7 +73,7 @@ function normalizeData(data) {
     .filter(Boolean);
 
   if (!lists.length) {
-    lists.push({ id: "default", name: "My first list", hideTitles: false, items: [] });
+    lists.push({ id: "default", name: "My first list", icon: "📋", hideTitles: false, items: [] });
   }
 
   const activeListId = lists.some((list) => list.id === data?.activeListId)
@@ -79,6 +81,11 @@ function normalizeData(data) {
     : lists[0].id;
 
   return { activeListId, lists };
+}
+
+function normalizeListIcon(icon) {
+  const icons = ["📋", "📚", "🎬", "🎲", "🍽️", "🛒", "🎁", "⭐", "💡", "🏠", "✈️", "🎮", "🎵", "🧩"];
+  return icons.includes(icon) ? icon : icons[0];
 }
 
 function normalizeItems(items) {

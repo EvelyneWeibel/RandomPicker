@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Random Picker</title>
-    <link rel="stylesheet" href="styles.css?v=20260524-2">
+    <link rel="stylesheet" href="styles.css?v=20260525-1">
   </head>
   <body>
     <section id="authPanel" class="auth-panel" hidden>
@@ -26,7 +26,6 @@
       <section class="picker-panel" aria-label="Random picker">
         <div class="topbar">
           <div>
-            <p class="eyebrow">Shared picker</p>
             <h1>Random Picker</h1>
           </div>
           <div class="top-actions">
@@ -68,6 +67,11 @@
           <input id="listNameInput" type="text" maxlength="80">
         </label>
 
+        <label class="field">
+          <span>List icon</span>
+          <select id="listIconInput"></select>
+        </label>
+
         <label class="checkbox-field">
           <input id="hideTitlesInput" type="checkbox">
           <span>Hide item titles when picking</span>
@@ -102,7 +106,7 @@
         <div class="import-row">
           <label class="file-button" for="fileInput">Upload list</label>
           <input id="fileInput" type="file" accept=".txt,.csv,.json">
-          <button id="exportButton" type="button">Download list</button>
+          <button id="exportButton" type="button">Download CSV</button>
           <button id="deleteAllButton" class="ghost-danger" type="button">Delete all items</button>
         </div>
 
@@ -121,6 +125,6 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <script src="config.js"></script>
-    <script src="app.js?v=20260524-4"></script>
+    <script src="app.js?v=20260525-1"></script>
   </body>
 </html>
