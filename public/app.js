@@ -330,12 +330,12 @@ async function findBookMatches(isbns, candidates) {
   const lookups = [];
 
   isbnVariants(isbns).slice(0, 6).forEach((isbn) => {
-    lookups.push(() => searchBnfByIsbn(isbn, 170));
-    lookups.push(() => searchOpenLibraryByIsbnSearch(isbn, 150));
-    lookups.push(() => searchOpenLibraryByIsbn(isbn, 145));
-    lookups.push(() => searchOpenLibraryIsbnJson(isbn, 140));
-    lookups.push(() => searchGoogleBooks(`isbn:${isbn}`, { language: "fr", country: "FR", sourceScore: 136 }));
-    lookups.push(() => searchGoogleBooks(`isbn:${isbn}`, { sourceScore: 132 }));
+    lookups.push(() => searchGoogleBooks(`isbn:${isbn}`, { sourceScore: 190, preferredLanguage: "en" }));
+    lookups.push(() => searchOpenLibraryByIsbnSearch(isbn, 158));
+    lookups.push(() => searchOpenLibraryByIsbn(isbn, 154));
+    lookups.push(() => searchOpenLibraryIsbnJson(isbn, 150));
+    lookups.push(() => searchBnfByIsbn(isbn, 148));
+    lookups.push(() => searchGoogleBooks(`isbn:${isbn}`, { language: "fr", country: "FR", sourceScore: 148, preferredLanguage: "fr" }));
   });
 
   candidates.slice(0, 4).forEach((candidate) => {
@@ -435,6 +435,7 @@ function bookScore(book, normalizedCandidates, hasIsbn) {
   const candidateVariants = normalizedCandidates.flatMap(searchTextVariants);
   const sourceBonus = book.sourceScore || 0;
   const authorBonus = book.author ? 8 : 0;
+  const languageBonus = languageScore(book);
   const popularityBonus = Math.min(book.editionCount || 0, 80) * 0.8;
   const exactBonus = candidateVariants.some((candidate) => candidate && titleVariants.includes(candidate)) ? 180 : 0;
   const startsBonus = candidateVariants.some((candidate) => candidate && titleVariants.some((variant) => variant.startsWith(candidate))) ? 42 : 0;
@@ -443,7 +444,20 @@ function bookScore(book, normalizedCandidates, hasIsbn) {
   const overlapBonus = Math.max(0, ...normalizedCandidates.map((candidate) => tokenOverlapScore(title, candidate)));
   const lengthPenalty = Math.max(0, ...normalizedCandidates.map((candidate) => titleLengthPenalty(title, candidate)));
   const isbnBonus = hasIsbn ? 20 : 0;
-  return sourceBonus + authorBonus + popularityBonus + exactBonus + startsBonus + includesBonus + candidateIncludesBonus + overlapBonus + isbnBonus - lengthPenalty;
+  return sourceBonus + languageBonus + authorBonus + popularityBonus + exactBonus + startsBonus + includesBonus + candidateIncludesBonus + overlapBonus + isbnBonus - lengthPenalty;
+}
+
+function languageScore(book) {
+  if (book.language === "en") return 46;
+  if (book.language === "fr") return 24;
+  if (looksEnglishTitle(book.title)) return 32;
+  if (book.language && book.language !== "en" && book.language !== "fr") return -24;
+  return 0;
+}
+
+function looksEnglishTitle(title) {
+  const normalized = normalizeSearchText(title);
+  return /\b(the|and|of|in|for|with|stone|book|harry|potter)\b/.test(normalized);
 }
 
 function searchTextVariants(text) {
@@ -502,6 +516,7 @@ async function searchGoogleBooks(query, options = {}) {
     title: item.volumeInfo?.title || "",
     author: (item.volumeInfo?.authors || []).slice(0, 2).join(", "),
     editionCount: 0,
+    language: item.volumeInfo?.language || options.preferredLanguage || "",
     sourceScore: options.sourceScore || 0
   }));
 }
@@ -528,6 +543,7 @@ async function searchBnfByIsbn(isbn, sourceScore = 0) {
         title,
         author,
         editionCount: 0,
+        language: "fr",
         sourceScore
       };
     })
@@ -568,17 +584,19 @@ async function searchOpenLibraryByIsbn(isbn, sourceScore = 0) {
     title: book.title || "",
     author: (book.authors || []).map((author) => author.name).filter(Boolean).slice(0, 2).join(", "),
     editionCount: 0,
+    language: normalizeBookLanguage(book.languages?.[0]?.key),
     sourceScore
   }];
 }
 
 async function searchOpenLibraryByIsbnSearch(isbn, sourceScore = 0) {
-  const url = `https://openlibrary.org/search.json?isbn=${encodeURIComponent(isbn)}&limit=5&fields=title,author_name,edition_count`;
+  const url = `https://openlibrary.org/search.json?isbn=${encodeURIComponent(isbn)}&limit=5&fields=title,author_name,edition_count,language`;
   const data = await fetchJson(url);
   return (data.docs || []).map((doc) => ({
     title: doc.title || "",
     author: (doc.author_name || []).slice(0, 2).join(", "),
     editionCount: doc.edition_count || 0,
+    language: normalizeBookLanguage((doc.language || [])[0]),
     sourceScore
   }));
 }
@@ -597,6 +615,7 @@ async function searchOpenLibraryIsbnJson(isbn, sourceScore = 0) {
     title: book.title || "",
     author,
     editionCount: 0,
+    language: normalizeBookLanguage(book.languages?.[0]?.key),
     sourceScore
   }];
 }
@@ -605,7 +624,7 @@ async function searchOpenLibraryByTitle(title, language = "", sourceScore = 0) {
   const params = new URLSearchParams({
     title,
     limit: "5",
-    fields: "title,author_name,edition_count"
+    fields: "title,author_name,edition_count,language"
   });
   if (language === "fr") {
     params.set("lang", "fr");
@@ -618,6 +637,7 @@ async function searchOpenLibraryByTitle(title, language = "", sourceScore = 0) {
     title: doc.title || "",
     author: (doc.author_name || []).slice(0, 2).join(", "),
     editionCount: doc.edition_count || 0,
+    language: normalizeBookLanguage((doc.language || [])[0]),
     sourceScore
   }));
 }
@@ -626,7 +646,7 @@ async function searchOpenLibraryByQuery(query, sourceScore = 0) {
   const params = new URLSearchParams({
     q: query,
     limit: "5",
-    fields: "title,author_name,edition_count"
+    fields: "title,author_name,edition_count,language"
   });
   const url = `https://openlibrary.org/search.json?${params.toString()}`;
   const data = await fetchJson(url);
@@ -634,8 +654,16 @@ async function searchOpenLibraryByQuery(query, sourceScore = 0) {
     title: doc.title || "",
     author: (doc.author_name || []).slice(0, 2).join(", "),
     editionCount: doc.edition_count || 0,
+    language: normalizeBookLanguage((doc.language || [])[0]),
     sourceScore
   }));
+}
+
+function normalizeBookLanguage(language) {
+  const value = String(language || "").toLowerCase();
+  if (value.includes("eng") || value === "en") return "en";
+  if (value.includes("fre") || value.includes("fra") || value === "fr") return "fr";
+  return value.replace(/^\/languages\//, "").slice(0, 3);
 }
 
 async function detectBarcodeIsbns(file) {
