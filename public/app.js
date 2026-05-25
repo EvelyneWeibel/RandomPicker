@@ -294,12 +294,20 @@ function uniqueBooks(books) {
 }
 
 async function fetchJson(url) {
+  return fetchWithTimeout(url).then((response) => response.json());
+}
+
+async function fetchText(url) {
+  return fetchWithTimeout(url).then((response) => response.text());
+}
+
+async function fetchWithTimeout(url) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 6500);
   try {
     const response = await fetch(url, { signal: controller.signal });
     if (!response.ok) throw new Error(`Request failed: ${response.status}`);
-    return response.json();
+    return response;
   } finally {
     clearTimeout(timeout);
   }
@@ -309,6 +317,7 @@ async function findBookMatches(isbns, candidates) {
   const lookups = [];
 
   isbnVariants(isbns).slice(0, 6).forEach((isbn) => {
+    lookups.push(() => searchBnfByIsbn(isbn, 170));
     lookups.push(() => searchOpenLibraryByIsbnSearch(isbn, 150));
     lookups.push(() => searchOpenLibraryByIsbn(isbn, 145));
     lookups.push(() => searchOpenLibraryIsbnJson(isbn, 140));
@@ -482,6 +491,59 @@ async function searchGoogleBooks(query, options = {}) {
     editionCount: 0,
     sourceScore: options.sourceScore || 0
   }));
+}
+
+async function searchBnfByIsbn(isbn, sourceScore = 0) {
+  const params = new URLSearchParams({
+    version: "1.2",
+    operation: "searchRetrieve",
+    query: `bib.isbn all "${isbn}"`,
+    recordSchema: "dublincore",
+    maximumRecords: "5"
+  });
+  const xmlText = await fetchText(`https://catalogue.bnf.fr/api/SRU?${params.toString()}`);
+  const xml = new DOMParser().parseFromString(xmlText, "application/xml");
+  if (xml.querySelector("parsererror")) return [];
+
+  return xmlElements(xml, "recordData")
+    .map((record) => {
+      const rawTitle = xmlTextContent(record, "title");
+      const creator = xmlTextContent(record, "creator");
+      const title = cleanBnfTitle(rawTitle);
+      const author = cleanBnfAuthor(creator);
+      return {
+        title,
+        author,
+        editionCount: 0,
+        sourceScore
+      };
+    })
+    .filter((book) => book.title);
+}
+
+function xmlElements(root, localName) {
+  return [...root.getElementsByTagNameNS("*", localName)];
+}
+
+function xmlTextContent(root, localName) {
+  return xmlElements(root, localName)[0]?.textContent?.trim() || "";
+}
+
+function cleanBnfTitle(title) {
+  return String(title || "")
+    .replace(/\s*\/\s*.+$/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function cleanBnfAuthor(author) {
+  const cleaned = String(author || "")
+    .replace(/\s*\([^)]*\)/g, "")
+    .replace(/\s*\.\s*Auteur.*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const parts = cleaned.split(",").map((part) => part.trim()).filter(Boolean);
+  return parts.length >= 2 ? `${parts.slice(1).join(" ")} ${parts[0]}` : cleaned;
 }
 
 async function searchOpenLibraryByIsbn(isbn, sourceScore = 0) {
