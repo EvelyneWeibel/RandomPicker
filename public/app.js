@@ -10,6 +10,7 @@ const state = {
 
 const SUPABASE_CONFIG = window.RANDOM_PICKER_SUPABASE || {};
 let supabaseClient = null;
+let zxingLoadPromise = null;
 
 const LIST_ICONS = ["📋", "📚", "🎬", "🎲", "🍽️", "🛒", "🎁", "⭐", "💡", "🏠", "✈️", "🎮", "🎵", "🧩"];
 const DEFAULT_LIST_ICON = LIST_ICONS[0];
@@ -510,6 +511,16 @@ async function searchOpenLibraryByTitle(title, language = "", sourceScore = 0) {
 }
 
 async function detectBarcodeIsbns(file) {
+  const nativeIsbns = await detectNativeBarcodeIsbns(file);
+  if (nativeIsbns.length) return nativeIsbns;
+  try {
+    return await detectZxingBarcodeIsbns(file);
+  } catch {
+    return [];
+  }
+}
+
+async function detectNativeBarcodeIsbns(file) {
   if (!("BarcodeDetector" in window)) return [];
   try {
     const detector = new BarcodeDetector({ formats: ["ean_13", "ean_8", "upc_a", "upc_e"] });
@@ -522,6 +533,56 @@ async function detectBarcodeIsbns(file) {
   } catch {
     return [];
   }
+}
+
+async function detectZxingBarcodeIsbns(file) {
+  const zxing = await loadZxing();
+  const Reader = zxing.BrowserMultiFormatReader || zxing.BrowserMultiFormatOneDReader;
+  if (!Reader) return [];
+
+  const reader = new Reader();
+  const url = URL.createObjectURL(file);
+  try {
+    const result = await withTimeout(
+      reader.decodeFromImageUrl(url),
+      7000,
+      "Barcode scan took too long."
+    );
+    const text = String(result?.getText?.() || result?.text || "");
+    return extractIsbns(text);
+  } catch {
+    return [];
+  } finally {
+    URL.revokeObjectURL(url);
+    reader.reset?.();
+  }
+}
+
+async function loadZxing() {
+  if (window.ZXingBrowser) return window.ZXingBrowser;
+  zxingLoadPromise ||= loadExternalScript("https://unpkg.com/@zxing/browser@0.2.0")
+    .then(() => window.ZXingBrowser);
+  const zxing = await zxingLoadPromise;
+  if (!zxing) throw new Error("Barcode scanner could not load.");
+  return zxing;
+}
+
+function loadExternalScript(src) {
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector(`script[src="${src}"]`);
+    if (existing) {
+      existing.addEventListener("load", resolve, { once: true });
+      existing.addEventListener("error", reject, { once: true });
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = src;
+    script.async = true;
+    script.onload = resolve;
+    script.onerror = () => reject(new Error(`Could not load ${src}`));
+    document.head.append(script);
+  });
 }
 
 async function recognizeBookText(file, logger) {
@@ -873,11 +934,6 @@ function renderBookMatches(books) {
 
 async function scanImage(file) {
   if (!file) return;
-  if (!window.Tesseract?.recognize) {
-    showMessage("OCR could not load. Check your connection and try again.");
-    return;
-  }
-
   const list = activeList();
   if (!list) return;
 
@@ -897,6 +953,11 @@ async function scanImage(file) {
         elements.scanStatus.textContent = "Choose a book match or edit before confirming.";
         return;
       }
+    }
+
+    if (!window.Tesseract?.recognize) {
+      elements.scanStatus.textContent = "No barcode found. Text scan could not load. Try Search ISBN or title below.";
+      return;
     }
 
     elements.scanStatus.textContent = "No barcode found. Reading visible text...";
